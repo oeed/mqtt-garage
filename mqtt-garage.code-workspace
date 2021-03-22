@@ -12,6 +12,8 @@
       "+nightly"
     ],
     "rust-analyzer.inlayHints.enable": false,
+    "rust-analyzer.cargo.target": "armv7-unknown-linux-gnueabihf"
+
   },
   "launch": {
     "configurations": [{
