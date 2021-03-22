@@ -80,7 +80,7 @@ impl SensorStateDetector {
 impl StateDetector for SensorStateDetector {
   type Config = SensorStateDetectorConfig;
 
-  fn with_config(identifier: Identifier, config: Self::Config) -> GarageResult<Self> {
+  fn with_config(_: Identifier, config: Self::Config) -> GarageResult<Self> {
     let gpio = Gpio::new()?;
     let pin = gpio.get(config.pin.pin_number())?.into_input_pullup();
 
@@ -91,15 +91,15 @@ impl StateDetector for SensorStateDetector {
     })
   }
 
-  fn start_travel(&self, target_state: TargetState) {
+  fn start_travel(&mut self, target_state: TargetState) {
     self.current_travel = Some(Travel::new(target_state));
   }
 
-  fn detect_state(&self) -> DetectedState {
+  fn detect_state(&mut self) -> DetectedState {
     let detected_state: DetectedState = self.stable_state();
 
     // check if this state indicates the door might be stuck
-    if let Some(current_travel) = self.current_travel {
+    if let Some(current_travel) = &self.current_travel {
       if current_travel.expired_invalid(detected_state, self.travel_time) {
         return DetectedState::Stuck;
       }

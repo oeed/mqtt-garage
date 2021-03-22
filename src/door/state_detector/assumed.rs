@@ -18,6 +18,7 @@ pub struct AssumedStateDetectorConfig {
 
 #[derive(Debug)]
 pub struct AssumedStateDetector {
+  identifier: Identifier, // TODO: can we borrow this?
   travel_time: Duration,
   current_travel: Option<Travel>,
   assumed_state: DetectedState,
@@ -28,21 +29,23 @@ impl StateDetector for AssumedStateDetector {
 
   fn with_config(identifier: Identifier, config: Self::Config) -> GarageResult<Self> {
     Ok(AssumedStateDetector {
+      identifier,
       travel_time: config.travel_time,
       current_travel: None,
       assumed_state: DetectedState::Closed, // TODO: write to file
     })
   }
 
-  fn start_travel(&self, target_state: TargetState) {
+  fn start_travel(&mut self, target_state: TargetState) {
     self.current_travel = Some(Travel::new(target_state));
   }
 
-  fn detect_state(&self) -> DetectedState {
-    if let Some(current_travel) = self.current_travel {
+  fn detect_state(&mut self) -> DetectedState {
+    if let Some(current_travel) = &self.current_travel {
       if current_travel.expired_invalid(self.assumed_state, self.travel_time) {
         // door was moving and should've finished by now, we assume it's finished. move to the target state
         self.assumed_state = DetectedState::from(current_travel.target_state);
+        self.current_travel = None;
         // TODO: write to file
         self.assumed_state
       }

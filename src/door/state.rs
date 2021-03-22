@@ -7,7 +7,7 @@ pub enum DoorState {
 }
 
 /// The state the door is trying to get to
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum TargetState {
   Open,
   Closed,

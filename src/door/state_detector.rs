@@ -18,11 +18,11 @@ pub trait StateDetector: Debug {
     Self: Sized;
 
   /// Request the state the detector thinks the door is in.
-  fn detect_state(&self) -> DetectedState;
+  fn detect_state(&mut self) -> DetectedState;
 
   /// Invoked when the door starts moving to the target state.
   /// Used to track how long the door has been moving.
-  fn start_travel(&self, target_state: TargetState);
+  fn start_travel(&mut self, target_state: TargetState);
 }
 
 #[serde(untagged)]
@@ -35,7 +35,7 @@ pub enum StateDetectorConfig {
 /// Detectors can tell if a door is open or closed, but not where long it is.
 ///
 /// It can also determine if the door is likely stuck.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum DetectedState {
   Open,
   Closed,
