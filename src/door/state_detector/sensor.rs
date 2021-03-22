@@ -1,10 +1,16 @@
-use crate::{config::gpio::GpioPin, error::GarageResult};
+use super::{DetectedState, StateDetector, Travel};
+use crate::{
+  config::gpio::GpioPin,
+  door::{state::TargetState, Identifier},
+  error::GarageResult,
+};
 use rppal::gpio::{Gpio, InputPin};
 use serde::Deserialize;
 use serde_with::{serde_as, DurationSeconds};
-use std::time::Duration;
-
-use super::StateDetector;
+use std::{
+  thread::sleep,
+  time::{Duration, SystemTime},
+};
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
@@ -24,18 +30,81 @@ pub struct SensorStateDetectorConfig {
 pub struct SensorStateDetector {
   pin: InputPin,
   travel_time: Duration,
+  current_travel: Option<Travel>,
+}
+
+impl SensorStateDetector {
+  /// Take a single reading of the pin
+  fn pin_state(&self) -> DetectedState {
+    if self.pin.is_high() {
+      DetectedState::Open
+    }
+    else {
+      DetectedState::Closed
+    }
+  }
+
+  /// Take multiple readings until we get stable state
+  fn stable_state(&self) -> DetectedState {
+    const MAX_READS: usize = 50;
+    const MIN_CONSECUTIVE: usize = 10;
+
+    let mut previous_state = None;
+    let mut consecutive = 0;
+    for _ in 0..MAX_READS {
+      if let Some(prev_state) = previous_state {
+        let state = self.pin_state();
+        if state == prev_state {
+          consecutive += 1;
+          if consecutive >= MIN_CONSECUTIVE {
+            return state;
+          }
+        }
+        else {
+          consecutive = 0;
+          previous_state = Some(state);
+        }
+      }
+      else {
+        previous_state = Some(self.pin_state())
+      }
+
+      sleep(Duration::from_millis(20))
+    }
+
+    // we didn't get enough consecutive readings, we're possibly stuck
+    DetectedState::Stuck
+  }
 }
 
 impl StateDetector for SensorStateDetector {
   type Config = SensorStateDetectorConfig;
 
-  fn with_config(config: Self::Config) -> GarageResult<Self> {
+  fn with_config(identifier: Identifier, config: Self::Config) -> GarageResult<Self> {
     let gpio = Gpio::new()?;
     let pin = gpio.get(config.pin.pin_number())?.into_input_pullup();
 
     Ok(SensorStateDetector {
       pin,
       travel_time: config.travel_time,
+      current_travel: None,
     })
+  }
+
+  fn start_travel(&self, target_state: TargetState) {
+    self.current_travel = Some(Travel::new(target_state));
+  }
+
+  fn detect_state(&self) -> DetectedState {
+    let detected_state: DetectedState = self.stable_state();
+
+    // check if this state indicates the door might be stuck
+    if let Some(current_travel) = self.current_travel {
+      if current_travel.expired_invalid(detected_state, self.travel_time) {
+        return DetectedState::Stuck;
+      }
+    }
+
+    detected_state
   }
 }

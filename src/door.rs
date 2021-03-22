@@ -27,7 +27,7 @@ impl<D: StateDetector> Door<D> {
     state_detector: D::Config,
     remote: RemoteConfig,
   ) -> GarageResult<Self> {
-    let state_detector = D::with_config(state_detector)?;
+    let state_detector = D::with_config(identifier.clone(), state_detector)?;
     let remote = DoorRemote::with_config(remote)?;
 
     Ok(Door {
