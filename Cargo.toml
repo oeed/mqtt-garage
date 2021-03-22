@@ -5,3 +5,7 @@ name = "mqtt-garage"
 version = "0.1.0"
 
 [dependencies]
+toml = "0.5.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_with = "1.6.4"
+rppal = "0.11.3"
