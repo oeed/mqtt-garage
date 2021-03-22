@@ -1,0 +1,63 @@
+{
+  "folders": [{
+      "path": "."
+    }
+  ],
+  "settings": {
+    "editor.detectIndentation": false,
+    "editor.tabSize": 2,
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "matklad.rust-analyzer",
+    "rust-analyzer.rustfmt.extraArgs": [
+      "+nightly"
+    ],
+    "rust-analyzer.inlayHints.enable": false,
+  },
+  "launch": {
+    "configurations": [{
+      "type": "lldb",
+      "request": "launch",
+      "name": "MQTT Garage",
+      "preLaunchTask": "build",
+      "program": "${workspaceRoot:mqtt-garage}/target/debug/mqtt-garage",
+      "cwd": "${workspaceRoot:mqtt-garage}",
+      "sourceLanguages": ["rust"],
+      "terminal": "integrated",
+      "console": "integratedTerminal",
+      "env": {
+        "RUST_LOG": "info"
+      }
+    }]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "type": "cargo",
+        "command": "build",
+        "problemMatcher": [
+          "$rustc"
+        ],
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "label": "build",
+        "options": {
+          "cwd": "${workspaceRoot:mqtt-garage}",
+        }
+      },
+      {
+        "type": "cargo",
+        "command": "check",
+        "problemMatcher": [
+          "$rustc"
+        ],
+        "label": "check",
+        "options": {
+          "cwd": "${workspaceRoot:mqtt-garage}",
+        }
+      }
+    ]
+  }
+}

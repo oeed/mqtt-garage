@@ -1,0 +1,7 @@
+[package]
+authors = ["Oliver Cooper <oliver.cooper@me.com>"]
+edition = "2018"
+name = "mqtt-garage"
+version = "0.1.0"
+
+[dependencies]
