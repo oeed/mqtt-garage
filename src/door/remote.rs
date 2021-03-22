@@ -1,7 +1,10 @@
-use super::config::RemoteConfig;
 use crate::error::GarageResult;
 use rppal::gpio::{Gpio, OutputPin};
 use std::thread;
+
+pub use config::RemoteConfig;
+
+mod config;
 
 #[derive(Debug)]
 pub struct DoorRemote {
