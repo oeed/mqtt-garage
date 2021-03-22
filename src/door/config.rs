@@ -24,7 +24,7 @@ pub struct DoorConfig {
 #[derive(Debug, Deserialize)]
 pub struct SensorConfig {
   /// The pin of the door detector sensor (if available)
-  pub pin: Option<GpioPin>,
+  pub pin: GpioPin,
 }
 
 

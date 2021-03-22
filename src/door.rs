@@ -1,32 +1,37 @@
-use rppal::gpio::{Gpio, InputPin, OutputPin};
-
+use self::{remote::DoorRemote, sensor::DoorSensor};
+use crate::error::GarageResult;
 pub use config::DoorConfig;
 pub use identifier::Identifier;
+use std::time::Duration;
 
 pub mod config;
 pub mod identifier;
+mod remote;
+mod sensor;
 
 #[derive(Debug)]
 pub struct Door {
   identifier: Identifier,
-  config: DoorConfig,
-  remote_pin: OutputPin,
-  sensor_pin: Option<InputPin>,
+  topic_name: String,
+  travel_time: Duration,
+  remote: DoorRemote,
+  sensor: Option<DoorSensor>,
 }
 
 impl Door {
   pub fn with_config(identifier: Identifier, config: DoorConfig) -> GarageResult<Self> {
-    let gpio = Gpio::new()?;
-    let remote_pin = gpio.get(config.remote.pin.pin_number())?.into_output();
-    let sensor_pin = config
+    let remote = DoorRemote::with_config(config.remote)?;
+    let sensor = config
       .sensor
-      .map(|sensor| gpio.get(sensor.pin.pin_number())?.into_input_pullup());
+      .map(|sensor_config| DoorSensor::with_config(sensor_config))
+      .transpose()?;
 
-    Door {
+    Ok(Door {
       identifier,
-      config,
-      remote_pin,
-      sensor_pin,
-    }
+      topic_name: config.topic_name,
+      travel_time: config.travel_time,
+      remote,
+      sensor,
+    })
   }
 }
