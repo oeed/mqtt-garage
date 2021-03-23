@@ -2,7 +2,7 @@ pub use config::DoorConfig;
 pub use identifier::Identifier;
 
 use self::{
-  remote::{DoorRemote, RemoteConfig},
+  remote::{DoorRemote, RemoteConfig, RemoteMutex},
   state::{State, TargetState},
   state_detector::StateDetector,
 };
@@ -18,7 +18,7 @@ mod state_detector;
 #[derive(Debug)]
 pub struct Door<'a, D: StateDetector> {
   identifier: Identifier,
-  remote: DoorRemote,
+  remote: DoorRemote<'a>,
   state_detector: D,
   current_state: State,
   target_state: TargetState,
@@ -36,9 +36,10 @@ impl<'a, D: StateDetector> Door<'a, D> {
     state_detector: D::Config,
     remote: RemoteConfig,
     mqtt_client: &'a mut MqttClient,
+    remote_mutex: &'a RemoteMutex,
   ) -> GarageResult<Door<'a, D>> {
     let mut state_detector = D::with_config(identifier.clone(), state_detector)?;
-    let remote = DoorRemote::with_config(remote)?;
+    let remote = DoorRemote::with_config(remote, remote_mutex)?;
 
     let initial_state: State = state_detector.detect_state().into();
 
