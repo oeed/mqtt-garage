@@ -1,8 +1,7 @@
-use crate::error::GarageResult;
-use rppal::gpio::{Gpio, OutputPin};
-use std::thread;
-
 pub use config::RemoteConfig;
+use rppal::gpio::{Gpio, OutputPin};
+
+use crate::error::GarageResult;
 
 mod config;
 
@@ -21,11 +20,10 @@ impl DoorRemote {
   }
 
   /// Trigger the remote to send the open/close signal
-  pub fn trigger(&mut self) {
-    // TOOD: make this async and deoverlap?
+  pub async fn trigger(&mut self) {
     self.pin.set_high();
-    thread::sleep(self.config.pressed_time);
+    tokio::time::sleep(self.config.pressed_time).await;
     self.pin.set_low();
-    thread::sleep(self.config.wait_time);
+    tokio::time::sleep(self.config.wait_time).await;
   }
 }

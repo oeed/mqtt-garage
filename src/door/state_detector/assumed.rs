@@ -1,11 +1,14 @@
+use std::time::{Duration, SystemTime};
+
+use async_trait::async_trait;
+use serde::Deserialize;
+use serde_with::{serde_as, DurationSeconds};
+
 use super::{DetectedState, StateDetector, Travel};
 use crate::{
   door::{state::TargetState, Identifier},
   error::GarageResult,
 };
-use serde::Deserialize;
-use serde_with::{serde_as, DurationSeconds};
-use std::time::{Duration, SystemTime};
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
@@ -24,6 +27,7 @@ pub struct AssumedStateDetector {
   assumed_state: DetectedState,
 }
 
+#[async_trait]
 impl StateDetector for AssumedStateDetector {
   type Config = AssumedStateDetectorConfig;
 
@@ -36,8 +40,13 @@ impl StateDetector for AssumedStateDetector {
     })
   }
 
-  fn start_travel(&mut self, target_state: TargetState) {
+  async fn travel(&mut self, target_state: TargetState) -> DetectedState {
+    if self.current_travel.is_some() {
+      panic!("AssumedStateDetector attempted to travel while it was already travelling");
+    }
     self.current_travel = Some(Travel::new(target_state));
+    tokio::time::sleep(self.travel_time).await;
+    self.detect_state()
   }
 
   fn detect_state(&mut self) -> DetectedState {

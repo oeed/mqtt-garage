@@ -1,15 +1,19 @@
-use self::{assumed::AssumedStateDetectorConfig, sensor::SensorStateDetectorConfig};
-use super::{state::TargetState, Identifier};
-use crate::error::GarageResult;
-use serde::Deserialize;
 use std::{
   fmt::Debug,
   time::{Duration, SystemTime},
 };
 
+use async_trait::async_trait;
+use serde::Deserialize;
+
+use self::{assumed::AssumedStateDetectorConfig, sensor::SensorStateDetectorConfig};
+use super::{state::TargetState, Identifier};
+use crate::error::GarageResult;
+
 pub mod assumed;
 pub mod sensor;
 
+#[async_trait]
 pub trait StateDetector: Debug {
   type Config;
 
@@ -22,7 +26,9 @@ pub trait StateDetector: Debug {
 
   /// Invoked when the door starts moving to the target state.
   /// Used to track how long the door has been moving.
-  fn start_travel(&mut self, target_state: TargetState);
+  ///
+  /// Future resolves when the door *should* have finished travelling in the state it was detected in
+  async fn travel(&mut self, target_state: TargetState) -> DetectedState;
 }
 
 #[serde(untagged)]

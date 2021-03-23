@@ -19,10 +19,17 @@ async fn main() {
 
 
   client
-    .poll(async |topic, payload| {
-      for door in doors {
-        door.on_message(&topic, &payload).await?
-      }
+    .poll(|topic, payload| {
+      // process messages concurrently
+      // we assume no door will use the same topic and thus only future will take a significant time
+      tokio::spawn(async move {
+        for door in doors {
+          door
+            .on_message(&topic, &payload)
+            .await
+            .expect("door message handling resulted in error")
+        }
+      });
     })
     .await
     .unwrap();

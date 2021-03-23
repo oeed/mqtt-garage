@@ -25,16 +25,12 @@ impl<'a, D: StateDetector> Door<'a, D> {
     if &self.command_topic == topic {
       if let Ok(command) = toml::from_str(&command) {
         match command {
-          Command::Open => self.to_target_state(TargetState::Open).await,
-          Command::Close => self.to_target_state(TargetState::Closed).await,
+          Command::Open => self.to_target_state(TargetState::Open).await?,
+          Command::Close => self.to_target_state(TargetState::Closed).await?,
         }
       }
-      else {
-        Ok(())
-      }
     }
-    else {
-      Ok(())
-    }
+
+    Ok(())
   }
 }

@@ -2,7 +2,6 @@ pub use config::DoorConfig;
 pub use identifier::Identifier;
 
 use self::{
-  config::MqttConfig,
   remote::{DoorRemote, RemoteConfig},
   state::{State, TargetState},
   state_detector::StateDetector,
@@ -25,14 +24,17 @@ pub struct Door<'a, D: StateDetector> {
   target_state: TargetState,
   mqtt_client: &'a mut MqttClient,
   command_topic: String,
+  state_topic: String,
 }
 
 impl<'a, D: StateDetector> Door<'a, D> {
   pub async fn with_config(
     identifier: Identifier,
+    command_topic: String,
+    state_topic: String,
+    initial_target_state: Option<TargetState>,
     state_detector: D::Config,
     remote: RemoteConfig,
-    mqtt: MqttConfig,
     mqtt_client: &'a mut MqttClient,
   ) -> GarageResult<Door<'a, D>> {
     let mut state_detector = D::with_config(identifier.clone(), state_detector)?;
@@ -47,9 +49,14 @@ impl<'a, D: StateDetector> Door<'a, D> {
       // we initially assume the door is going to where it is meant to be going
       target_state: initial_state.end_state(),
       current_state: initial_state,
-      command_topic: mqtt.command_topic,
+      command_topic,
+      state_topic,
       mqtt_client,
     };
+
+    if let Some(target_state) = initial_target_state {
+      door.to_target_state(target_state).await?;
+    }
 
     door.subscribe_commands().await?;
 

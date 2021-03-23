@@ -1,15 +1,18 @@
+use std::{
+  thread::sleep,
+  time::{Duration, SystemTime},
+};
+
+use async_trait::async_trait;
+use rppal::gpio::{Gpio, InputPin};
+use serde::Deserialize;
+use serde_with::{serde_as, DurationSeconds};
+
 use super::{DetectedState, StateDetector, Travel};
 use crate::{
   config::gpio::GpioPin,
   door::{state::TargetState, Identifier},
   error::GarageResult,
-};
-use rppal::gpio::{Gpio, InputPin};
-use serde::Deserialize;
-use serde_with::{serde_as, DurationSeconds};
-use std::{
-  thread::sleep,
-  time::{Duration, SystemTime},
 };
 
 #[serde_as]
@@ -77,6 +80,7 @@ impl SensorStateDetector {
   }
 }
 
+#[async_trait]
 impl StateDetector for SensorStateDetector {
   type Config = SensorStateDetectorConfig;
 
@@ -91,15 +95,20 @@ impl StateDetector for SensorStateDetector {
     })
   }
 
-  fn start_travel(&mut self, target_state: TargetState) {
+  async fn travel(&mut self, target_state: TargetState) -> DetectedState {
+    if self.current_travel.is_some() {
+      panic!("SensorStateDetector attempted to travel while it was already travelling");
+    }
     self.current_travel = Some(Travel::new(target_state));
+    tokio::time::sleep(self.travel_time).await;
+    self.detect_state()
   }
 
   fn detect_state(&mut self) -> DetectedState {
     let detected_state: DetectedState = self.stable_state();
 
     // check if this state indicates the door might be stuck
-    if let Some(current_travel) = &self.current_travel {
+    if let Some(current_travel) = self.current_travel.take() {
       if current_travel.expired_invalid(detected_state, self.travel_time) {
         return DetectedState::Stuck;
       }
