@@ -14,4 +14,4 @@ tokio = "1.4"
 async-trait = "0.1.48"
 
 [features]
-arm = []
+arm = ["rppal"]
