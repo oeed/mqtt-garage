@@ -1,6 +1,9 @@
-use std::{borrow::BorrowMut, fs};
+use std::{
+  borrow::{Borrow, BorrowMut},
+  fs,
+};
 
-use mqtt_garage::{config::Config, mqtt_client::MqttClient};
+use mqtt_garage::{config::Config, door::Door, mqtt_client::MqttClient};
 use tokio;
 
 #[tokio::main]
@@ -9,20 +12,18 @@ async fn main() {
   let config: Config = toml::from_str(&config).expect("unable to parse garage-config.toml");
 
   let mut client = MqttClient::with_config(config.mqtt_client);
+  let doors: Vec<_> = config
+    .doors
+    .into_iter()
+    .map(|(identifier, door)| Door::with_config(identifier, door.state_detector, door.remote, door.mqtt));
+
 
   client
-    .publish("oliver-test/write", rumqttc::QoS::AtLeastOnce, false, "test")
-    .await
-    .unwrap();
-
-  client
-    .borrow_mut()
-    .subscribe("oliver-test/read", rumqttc::QoS::AtLeastOnce, |body| {
-      println!("got body: {}", body);
-      Ok(())
+    .poll(async |topic, payload| {
+      for door in doors {
+        door.on_message(&topic, &payload).await?
+      }
     })
     .await
     .unwrap();
-
-  client.poll().await.unwrap();
 }

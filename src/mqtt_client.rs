@@ -1,5 +1,12 @@
 use core::panic;
-use std::{collections::HashMap, convert::TryFrom};
+use std::{
+  borrow::Borrow,
+  collections::{HashMap, HashSet},
+  convert::TryFrom,
+  fmt::{self, Debug},
+  future::Future,
+  pin::Pin,
+};
 
 use rumqttc::{AsyncClient, Event, EventLoop, Incoming, LastWill, MqttOptions, Packet, QoS};
 use serde::Deserialize;
@@ -20,13 +27,19 @@ pub struct MqttClientConfig {
   pub offline_availability: String,
 }
 
-
 pub struct MqttClient {
   client: AsyncClient,
   event_loop: EventLoop,
   availability_topic: String,
   online_availability: String,
-  subscriptions: HashMap<String, fn(String) -> GarageResult<()>>,
+  /// A list of all topics that have been subscribed to
+  subscribed_topics: HashSet<String>,
+}
+
+impl Debug for MqttClient {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "MqttClient")
+  }
 }
 
 impl MqttClient {
@@ -47,22 +60,13 @@ impl MqttClient {
       event_loop,
       availability_topic: config.availability_topic,
       online_availability: config.online_availability,
-      subscriptions: HashMap::new(),
+      subscribed_topics: HashSet::new(),
     }
   }
 
-  pub async fn subscribe(
-    &mut self,
-    topic: &str,
-    qos: QoS,
-    on_event: fn(String) -> GarageResult<()>,
-  ) -> GarageResult<()> {
-    if self.subscriptions.contains_key(topic) {
-      panic!("attempted to subscribe to the same topic twice: {}", topic);
-    }
-
-    self.client.subscribe(topic, qos).await?;
-    self.subscriptions.insert(String::from(topic), on_event);
+  pub async fn subscribe(&mut self, topic: String, qos: QoS) -> GarageResult<()> {
+    self.client.subscribe(&topic, qos).await?;
+    self.subscribed_topics.insert(topic);
     Ok(())
   }
 
@@ -74,7 +78,10 @@ impl MqttClient {
       .map_err(|err| err.into())
   }
 
-  pub async fn poll(mut self) -> GarageResult<()> {
+  pub async fn poll<F>(mut self, on_message: fn(String, String) -> F) -> GarageResult<()>
+  where
+    F: Future<Output = GarageResult<()>>,
+  {
     // announce our availability
     self
       .publish(
@@ -90,10 +97,9 @@ impl MqttClient {
       let notification = self.event_loop.poll().await?;
       println!("Received = {:?}", notification);
       if let Event::Incoming(Packet::Publish(message)) = notification {
-        if let Some(subscription) = self.subscriptions.get(&message.topic) {
+        if self.subscribed_topics.contains(&message.topic) {
           if let Ok(payload) = String::from_utf8(message.payload.to_vec()) {
-            // we only handle a payload if it is subscribed and can decode to a string, others are not related to us
-            subscription(payload)?;
+            on_message(message.topic, payload).await?
           }
         }
       }

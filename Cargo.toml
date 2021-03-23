@@ -13,4 +13,4 @@ rumqttc = "0.5.0"
 tokio = "1.4"
 
 [features]
-arm = ["arm"]
+arm = []
