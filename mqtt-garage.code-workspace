@@ -12,7 +12,8 @@
       "+nightly"
     ],
     "rust-analyzer.inlayHints.enable": false,
-    "rust-analyzer.cargo.target": "armv7-unknown-linux-gnueabihf"
+    // "rust-analyzer.cargo.target": "armv7-unknown-linux-gnueabihf"
+    "rust-analyzer.cargo.features": ["arm"]
 
   },
   "launch": {

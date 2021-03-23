@@ -1,10 +1,10 @@
-use super::{remote::RemoteConfig, state_detector::StateDetectorConfig};
+use super::{mqtt::MqttConfig, remote::RemoteConfig, state_detector::StateDetectorConfig};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct DoorConfig {
   /// The name of the MQTT topic to push to
-  pub topic_name: String,
+  pub mqtt: MqttConfig,
 
   /// The door detector sensor (if available)
   pub state_detector: StateDetectorConfig,

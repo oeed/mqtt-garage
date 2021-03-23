@@ -1,13 +1,19 @@
-use crate::door;
-use serde::Deserialize;
+#[cfg(feature = "arm")]
 use std::collections::HashMap;
+
+use serde::Deserialize;
+
+#[cfg(feature = "arm")]
+use crate::door;
+use crate::mqtt_client::MqttClientConfig;
 
 pub mod gpio;
 
-#[derive(Deserialize)]
-struct Config {
-  /// The domain of the MQTT broker
-  mqtt_broker: String,
+#[derive(Debug, Deserialize)]
+pub struct Config {
+  /// The MQTT configuration
+  pub mqtt_client: MqttClientConfig,
   /// A list of all doors to control
-  doors: HashMap<door::Identifier, door::DoorConfig>,
+  #[cfg(feature = "arm")]
+  pub doors: HashMap<door::Identifier, door::DoorConfig>,
 }
