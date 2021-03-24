@@ -35,7 +35,7 @@ async fn main() {
         .await
         .expect("failed to initialised door");
 
-        let receive_channel = door.subscribe(&mut client).await.unwrap();
+        let receive_channel = door.subscribe(&mut client.receiver).await.unwrap();
 
         tokio::spawn(async move { door.listen(receive_channel).await });
       }
@@ -45,6 +45,10 @@ async fn main() {
 
   client.announce().await.expect("failed to announce client");
 
-  tokio::spawn(client.receive_messages());
-  client.send_messages().await.unwrap();
+  let mut receiver = client.receiver;
+  tokio::spawn(async move { receiver.receive_messages().await.unwrap() });
+
+  let mut sender = client.sender;
+  sender.send_messages().await.unwrap();
+}
 }

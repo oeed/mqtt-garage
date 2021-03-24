@@ -13,7 +13,14 @@ use rumqttc::{AsyncClient, Event, EventLoop, Incoming, LastWill, MqttOptions, Pa
 use serde::Deserialize;
 use tokio::{sync::mpsc, task};
 
+use self::{
+  receiver::MqttReceiver,
+  sender::{MqttSender, PublishSender},
+};
 use crate::error::GarageResult;
+
+pub mod receiver;
+pub mod sender;
 
 #[derive(Debug, Deserialize)]
 pub struct MqttClientConfig {
@@ -29,9 +36,6 @@ pub struct MqttClientConfig {
   pub offline_availability: String,
 }
 
-pub type PublishSender = mpsc::UnboundedSender<MqttPublish>;
-pub type PublishReceiver = mpsc::UnboundedReceiver<MqttPublish>;
-
 #[derive(Debug)]
 pub struct MqttPublish {
   pub topic: String,
@@ -42,13 +46,10 @@ pub struct MqttPublish {
 
 pub struct MqttClient {
   client: AsyncClient,
-  event_loop: EventLoop,
   availability_topic: String,
   online_availability: String,
-  /// The channel with which messages to send to MQTT are received on
-  send_channel: PublishReceiver,
-  /// The channel with which messages received from MQTT are fowarded on
-  receive_channels: HashMap<String, PublishSender>,
+  pub sender: MqttSender,
+  pub receiver: MqttReceiver,
 }
 
 impl Debug for MqttClient {
@@ -75,40 +76,27 @@ impl MqttClient {
     (
       send_tx,
       MqttClient {
-        client,
-        event_loop,
+        client: client.clone(),
         availability_topic: config.availability_topic,
         online_availability: config.online_availability,
-        send_channel: send_rx,
-        receive_channels: HashMap::new(),
+        receiver: MqttReceiver {
+          client: client.clone(),
+          event_loop,
+          receive_channels: HashMap::new(),
+        },
+        sender: MqttSender {
+          client,
+          send_channel: send_rx,
+        },
       },
     )
-  }
-
-  pub async fn subscribe(&mut self, topic: String, qos: QoS) -> GarageResult<PublishReceiver> {
-    if self.receive_channels.contains_key(&topic) {
-      panic!("attempted to subscribe to the same channel twice");
-    }
-
-    self.client.subscribe(&topic, qos).await?;
-    let (receive_tx, receive_rx) = mpsc::unbounded_channel();
-    self.receive_channels.insert(topic, receive_tx);
-
-    Ok(receive_rx)
-  }
-
-  pub async fn publish(&self, topic: &str, qos: QoS, retain: bool, payload: &str) -> GarageResult<()> {
-    self
-      .client
-      .publish(topic, qos, retain, payload)
-      .await
-      .map_err(|err| err.into())
   }
 
   /// Announce our availability
   pub async fn announce(&mut self) -> GarageResult<()> {
     // announce our availability
     self
+      .sender
       .publish(
         &self.availability_topic,
         QoS::AtLeastOnce,
@@ -116,39 +104,5 @@ impl MqttClient {
         &self.online_availability,
       )
       .await
-  }
-
-  pub async fn receive_messages(&mut self) -> GarageResult<()> {
-    loop {
-      let notification = self.event_loop.poll().await?;
-      println!("Received = {:?}", notification);
-      if let Event::Incoming(Packet::Publish(message)) = notification {
-        if let Some(channel) = self.receive_channels.get(&message.topic) {
-          if let Ok(payload) = String::from_utf8(message.payload.to_vec()) {
-            channel.send(MqttPublish {
-              topic: message.topic,
-              qos: message.qos,
-              retain: message.retain,
-              payload,
-            });
-          }
-        }
-      }
-    }
-  }
-
-  pub async fn send_messages(&mut self) -> GarageResult<()> {
-    loop {
-      if let Some(publish) = self.send_channel.recv().await {
-        self
-          .client
-          .publish(publish.topic, publish.qos, publish.retain, publish.payload)
-          .await
-          .map_err(|err| err.into())?;
-      }
-      else {
-        return Ok(());
-      }
-    }
   }
 }

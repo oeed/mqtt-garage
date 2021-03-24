@@ -11,7 +11,7 @@ use self::{
 };
 use crate::{
   error::GarageResult,
-  mqtt_client::{MqttClient, PublishReceiver, PublishSender},
+  mqtt_client::{receiver::PublishReceiver, sender::PublishSender},
 };
 
 mod command;
