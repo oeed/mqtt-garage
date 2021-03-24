@@ -5,7 +5,7 @@ use std::{
 
 use mqtt_garage::{
   config::Config,
-  door::{remote::RemoteMutex, Door},
+  door::{Door, RemoteMutex},
   mqtt_client::MqttClient,
 };
 use tokio;
@@ -21,7 +21,19 @@ async fn main() {
   let doors: Vec<_> = config
     .doors
     .into_iter()
-    .map(|(identifier, door)| Door::with_config(identifier, door.state_detector, door.remote, door.mqtt));
+    .map(|(identifier, door)| {
+      Door::with_config(
+        identifier,
+        door.command_topic,
+        door.state_topic,
+        door.initial_target_state,
+        door.state_detector,
+        door.remote,
+        &client,
+        &remote_mutex,
+      )
+    })
+    .collect();
 
 
   client

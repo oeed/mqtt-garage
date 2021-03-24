@@ -1,11 +1,11 @@
 pub use config::RemoteConfig;
-pub use mutex::RemoteMutex;
+use mutex::RemoteMutex;
 use rppal::gpio::{Gpio, OutputPin};
 
 use crate::error::GarageResult;
 
 mod config;
-mod mutex;
+pub mod mutex;
 
 #[derive(Debug)]
 pub struct DoorRemote<'a> {

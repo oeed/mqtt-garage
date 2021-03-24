@@ -78,7 +78,7 @@ impl MqttClient {
       .map_err(|err| err.into())
   }
 
-  pub async fn pol(mut self, on_message: fn(String, String) -> GarageResult<()>) -> GarageResult<()> {
+  pub async fn poll(mut self, on_message: fn(String, String) -> GarageResult<()>) -> GarageResult<()> {
     // announce our availability
     self
       .publish(

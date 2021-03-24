@@ -1,5 +1,6 @@
 pub use config::DoorConfig;
 pub use identifier::Identifier;
+pub use mutex::DoorMutex;
 
 use self::{
   remote::{DoorRemote, RemoteConfig, RemoteMutex},
