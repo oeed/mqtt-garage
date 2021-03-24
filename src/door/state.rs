@@ -105,6 +105,7 @@ impl<D: StateDetector + Send> Door<D> {
     }
     // if this is already our target state we don't need to do anything
     if self.target_state != target_state {
+      println!("{} moving to state: {:?}", &self, &target_state);
       self.target_state = target_state;
 
       for _ in 0..MAX_STUCK_TRAVELS {
@@ -121,7 +122,7 @@ impl<D: StateDetector + Send> Door<D> {
     Ok(())
   }
 
-  async fn set_current_state(&mut self, current_state: State) -> GarageResult<()> {
+  pub async fn set_current_state(&mut self, current_state: State) -> GarageResult<()> {
     self.current_state = current_state;
     self
       .send_channel
@@ -141,6 +142,7 @@ impl<D: StateDetector + Send> Door<D> {
       self.set_current_state(self.target_state.travel_state()).await?;
 
       // trigger the door
+      println!("{} triggering remote", &self);
       self.remote.trigger();
 
       self.monitor_travel().await
@@ -153,7 +155,10 @@ impl<D: StateDetector + Send> Door<D> {
   /// The door is moving, wait for it to move then observe the outcome
   async fn monitor_travel(&mut self) -> GarageResult<TravelResult> {
     // then wait for it to move
+    println!("{} travelling...", &self);
     let detected_state = self.state_detector.travel(self.target_state).await;
+    println!("{} travel result: {:?}", &self, &detected_state);
+
 
     // door (should have) finished moving, update our current state
     let (current_state, result) = match detected_state {
@@ -172,11 +177,13 @@ impl<D: StateDetector + Send> Door<D> {
   pub async fn check_state(&mut self) -> GarageResult<()> {
     let detected_state = self.state_detector.detect_state();
     if detected_state == DetectedState::Open && self.current_state == State::Closed {
+      println!("{} state manually changed to: {:?}", &self, &detected_state);
       // door was closed but it's now open
       self.target_state = TargetState::Open;
       self.monitor_travel().await?;
     }
     else if detected_state == DetectedState::Closed && self.current_state == State::Open {
+      println!("{} state manually changed to: {:?}", &self, &detected_state);
       // door was open but it's now closed
       self.target_state = TargetState::Closed;
       self.monitor_travel().await?;

@@ -1,4 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+  fmt::{self, write, Display},
+  sync::Arc,
+  time::Duration,
+};
 
 pub use config::DoorConfig;
 pub use identifier::Identifier;
@@ -34,6 +38,12 @@ pub struct Door<D: StateDetector + Send> {
   state_topic: String,
 }
 
+impl<D: StateDetector + Send> fmt::Display for Door<D> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "Door ({})", self.identifier.0)
+  }
+}
+
 impl<D: StateDetector + Send> Door<D> {
   pub async fn with_config(
     identifier: Identifier,
@@ -61,6 +71,8 @@ impl<D: StateDetector + Send> Door<D> {
       send_channel,
     };
 
+    door.set_current_state(initial_state).await?;
+
     if let Some(target_state) = initial_target_state {
       door.to_target_state(target_state).await?;
     }
@@ -71,6 +83,7 @@ impl<D: StateDetector + Send> Door<D> {
 
 impl<D: StateDetector + Send + 'static> Door<D> {
   pub async fn listen(self, mut receive_channel: PublishReceiver) {
+    println!("{} initialised", &self);
     let should_check = self.state_detector.should_check();
     let command_topic = &self.command_topic.clone();
     let mutex = Arc::new(Mutex::new(self));
@@ -90,7 +103,9 @@ impl<D: StateDetector + Send + 'static> Door<D> {
       if let Some(publish) = receive_channel.recv().await {
         if command_topic == &publish.topic {
           if let Ok(target_state) = toml::from_str(&publish.payload) {
-            mutex.lock().await.to_target_state(target_state).await.unwrap()
+            let mut door = mutex.lock().await;
+            println!("{} got told to moved to state: {:?}", &door, &target_state);
+            door.to_target_state(target_state).await.unwrap()
           }
         }
       }

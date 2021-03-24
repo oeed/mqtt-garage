@@ -6,7 +6,7 @@ use serde::Serialize;
 ///
 /// Also used to save the door's last state.
 #[derive(Debug, Serialize, Hash, PartialEq, Eq, Clone)]
-pub struct Identifier(String);
+pub struct Identifier(pub(super) String);
 
 impl From<String> for Identifier {
   fn from(string: String) -> Self {
