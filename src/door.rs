@@ -3,7 +3,7 @@ pub use identifier::Identifier;
 pub use remote::mutex::RemoteMutex;
 
 use self::{
-  remote::{DoorRemote, RemoteConfig, RemoteMutex},
+  remote::{DoorRemote, RemoteConfig},
   state::{State, TargetState},
   state_detector::StateDetector,
 };
