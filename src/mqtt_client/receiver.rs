@@ -9,10 +9,10 @@ use crate::error::GarageResult;
 pub type PublishReceiver = mpsc::UnboundedReceiver<MqttPublish>;
 
 pub struct MqttReceiver {
-  client: AsyncClient,
-  event_loop: EventLoop,
+  pub(super) client: AsyncClient,
+  pub event_loop: EventLoop,
   /// The channel with which messages received from MQTT are fowarded on
-  receive_channels: HashMap<String, PublishSender>,
+  pub receive_channels: HashMap<String, PublishSender>,
 }
 
 impl MqttReceiver {
