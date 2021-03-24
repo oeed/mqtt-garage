@@ -7,9 +7,9 @@ use crate::error::{GarageError, GarageResult};
 pub type PublishSender = mpsc::UnboundedSender<MqttPublish>;
 
 pub struct MqttSender {
-  client: AsyncClient,
+  pub(super) client: AsyncClient,
   /// The channel with which messages to send to MQTT are received on
-  send_channel: PublishReceiver,
+  pub send_channel: PublishReceiver,
 }
 
 impl MqttSender {
