@@ -5,7 +5,7 @@ use std::{
 
 use mqtt_garage::{
   config::Config,
-  door::{Door, RemoteMutex},
+  door::{state_detector::sensor::SensorStateDetector, Door, RemoteMutex},
   mqtt_client::MqttClient,
 };
 use tokio;
@@ -22,6 +22,7 @@ async fn main() {
   for (identifier, door_config) in config.doors {
     match door_config.state_detector {
       StateDetectorConfig::Assumed(state_detector) => {
+        // TODO: some elegant way to do this without copy paste
         let mut door = Door::<AssumedStateDetector>::with_config(
           identifier,
           door_config.command_topic,
@@ -39,7 +40,26 @@ async fn main() {
 
         tokio::spawn(async move { door.listen(receive_channel).await });
       }
-      _ => todo!(),
+
+      StateDetectorConfig::Sensor(state_detector) => {
+        // TODO: some elegant way to do this without copy paste
+        let mut door = Door::<SensorStateDetector>::with_config(
+          identifier,
+          door_config.command_topic,
+          door_config.state_topic,
+          door_config.initial_target_state,
+          door_config.remote,
+          state_detector,
+          send_channel.clone(),
+          Arc::clone(&remote_mutex),
+        )
+        .await
+        .expect("failed to initialised door");
+
+        let receive_channel = door.subscribe(&mut client.receiver).await.unwrap();
+
+        tokio::spawn(async move { door.listen(receive_channel).await });
+      }
     };
   }
 
@@ -50,5 +70,4 @@ async fn main() {
 
   let mut sender = client.sender;
   sender.send_messages().await.unwrap();
-}
 }

@@ -2,7 +2,7 @@ use rumqttc::{AsyncClient, QoS};
 use tokio::sync::mpsc;
 
 use super::{receiver::PublishReceiver, MqttPublish};
-use crate::error::GarageResult;
+use crate::error::{GarageError, GarageResult};
 
 pub type PublishSender = mpsc::UnboundedSender<MqttPublish>;
 
@@ -28,7 +28,7 @@ impl MqttSender {
           .client
           .publish(publish.topic, publish.qos, publish.retain, publish.payload)
           .await
-          .map_err(|err| err.into())?;
+          .map_err(|err| GarageError::from(err))?;
       }
       else {
         return Ok(());
