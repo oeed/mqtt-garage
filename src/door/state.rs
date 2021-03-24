@@ -1,3 +1,5 @@
+use std::char::MAX;
+
 use futures::{future::BoxFuture, FutureExt};
 use rumqttc::QoS;
 use serde::{Deserialize, Serialize};
@@ -6,14 +8,14 @@ use super::{
   state_detector::{DetectedState, StateDetector},
   Door,
 };
-use crate::error::GarageResult;
+use crate::{error::GarageResult, mqtt_client::MqttPublish};
 
 /// The state the door is trying to get to
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetState {
-  #[serde(rename = "open")]
+  #[serde(rename = "OPEN")]
   Open,
-  #[serde(rename = "closed")]
+  #[serde(rename = "CLOSED")]
   Closed,
 }
 
@@ -95,13 +97,24 @@ impl State {
 
 const MAX_STUCK_TRAVELS: usize = 5;
 
-impl<'a, D: StateDetector + Send> Door<'a, D> {
+impl<D: StateDetector> Door<D> {
   /// Tell the door to transition to the given target state
   pub async fn to_target_state(&mut self, target_state: TargetState) -> GarageResult<()> {
+    if self.current_state.is_travelling() {
+      panic!("attempted to set target state while door is travelling");
+    }
     // if this is already our target state we don't need to do anything
     if self.target_state != target_state {
       self.target_state = target_state;
-      self.travel_if_needed(MAX_STUCK_TRAVELS).await?;
+
+      for _ in 0..MAX_STUCK_TRAVELS {
+        match self.travel_if_needed(MAX_STUCK_TRAVELS).await? {
+          TravelResult::Successful => return Ok(()),
+          TravelResult::Failed => continue,
+        }
+      }
+
+      // TODO: door moved failed
     }
 
     Ok(())
@@ -110,52 +123,48 @@ impl<'a, D: StateDetector + Send> Door<'a, D> {
   async fn set_current_state(&mut self, current_state: State) -> GarageResult<()> {
     self.current_state = current_state;
     self
-      .mqtt_client
-      .publish(
-        &self.state_topic,
-        QoS::AtLeastOnce,
-        true,
-        &toml::to_string(&current_state).unwrap(),
-      )
-      .await?;
+      .send_channel
+      .send(MqttPublish {
+        topic: self.state_topic.clone(),
+        qos: QoS::AtLeastOnce,
+        retain: true,
+        payload: toml::to_string(&current_state).unwrap(),
+      })
+      .expect("MQTT channel cloesd");
     Ok(())
   }
 
-  fn travel_if_needed<'b>(
-    &'b mut self,
-    remaining_travels: usize,
-  ) -> Pin<Box<dyn Future<Output = GarageResult<()>> + 'b>> {
-    Box::pin(async move {
-      if self.current_state.is_travelling() {
-        // if the door is currently travelling it'll check once it is finished
-        // and then move if required, so we don't need to do anything here
-      }
-      else if remaining_travels == 0 {
-        // the door appears to be stuck
-        // TODO: door stuck alert
-      }
-      else if self.current_state != self.target_state {
-        // we're not in our target state, transition to travelling and trigger the door
-        self.set_current_state(self.target_state.travel_state()).await?;
-        // trigger the door
-        self.remote.trigger();
-        // then wait for it to move
-        let detected_state = self.state_detector.travel(self.target_state).await;
+  async fn travel_if_needed(&mut self, remaining_travels: usize) -> GarageResult<TravelResult> {
+    if self.current_state != self.target_state {
+      // we're not in our target state, transition to travelling and trigger the door
+      self.set_current_state(self.target_state.travel_state()).await?;
 
-        // door (should have) finished moving, update our current state
-        let (current_state, remaining_travels) = match detected_state {
-          DetectedState::Open => (State::Open, remaining_travels),
-          DetectedState::Closed => (State::Closed, remaining_travels),
-          // if the door seems to be stuck we assume it is where it was when it opened and reduce the number of times we're willing to try again
-          DetectedState::Stuck => (self.current_state.start_state().into(), remaining_travels - 1),
-        };
-        self.set_current_state(current_state).await?;
+      // trigger the door
+      self.remote.trigger();
 
-        // travel again if needed
-        self.travel_if_needed(remaining_travels).await?;
-      }
+      // then wait for it to move
+      let detected_state = self.state_detector.travel(self.target_state).await;
 
-      Ok(())
-    })
+      // door (should have) finished moving, update our current state
+      let (current_state, result) = match detected_state {
+        DetectedState::Open => (State::Open, TravelResult::Successful),
+        DetectedState::Closed => (State::Closed, TravelResult::Successful),
+        // if the door seems to be stuck we assume it is where it was when it opened and reduce the number of times we're willing to try again
+        DetectedState::Stuck => (self.current_state.start_state().into(), TravelResult::Failed),
+      };
+      self.set_current_state(current_state).await?;
+
+      Ok(result)
+    }
+    else {
+      Ok(TravelResult::Successful)
+    }
   }
+}
+
+enum TravelResult {
+  /// We got to our target state
+  Successful,
+  /// The door
+  Failed,
 }

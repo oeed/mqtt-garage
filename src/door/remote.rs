@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 pub use config::RemoteConfig;
 use mutex::RemoteMutex;
 use rppal::gpio::{Gpio, OutputPin};
@@ -8,14 +10,14 @@ mod config;
 pub mod mutex;
 
 #[derive(Debug)]
-pub struct DoorRemote<'a> {
+pub struct DoorRemote {
   pin: OutputPin,
   config: RemoteConfig,
-  mutex: &'a RemoteMutex,
+  mutex: Arc<RemoteMutex>,
 }
 
-impl<'a> DoorRemote<'a> {
-  pub fn with_config(config: RemoteConfig, mutex: &'a RemoteMutex) -> GarageResult<Self> {
+impl DoorRemote {
+  pub fn with_config(config: RemoteConfig, mutex: Arc<RemoteMutex>) -> GarageResult<Self> {
     let gpio = Gpio::new()?;
     let pin = gpio.get(config.pin.pin_number())?.into_output();
 

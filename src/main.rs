@@ -15,31 +15,36 @@ async fn main() {
   let config = fs::read_to_string("garage-config.toml").expect("unable to read garage-config.toml");
   let config: Config = toml::from_str(&config).expect("unable to parse garage-config.toml");
 
-  let remote_mutex = RemoteMutex::new();
+  let remote_mutex = Arc::new(RemoteMutex::new());
 
-  let client = &mut MqttClient::with_config(config.mqtt_client);
-  let doors: Vec<_> = try_join_all(
-    config
-      .doors
-      .into_iter()
-      .map(|(identifier, door)| ConcreteDoor::with_config(identifier, door, client, &remote_mutex)),
-  )
-  .await
-  .expect("unable to initialise doors");
+  let (send_channel, mut client) = MqttClient::with_config(config.mqtt_client);
 
+  for (identifier, door_config) in config.doors {
+    match door_config.state_detector {
+      StateDetectorConfig::Assumed(state_detector) => {
+        let mut door = Door::<AssumedStateDetector>::with_config(
+          identifier,
+          door_config.command_topic,
+          door_config.state_topic,
+          door_config.initial_target_state,
+          door_config.remote,
+          state_detector,
+          send_channel.clone(),
+          Arc::clone(&remote_mutex),
+        )
+        .await
+        .expect("failed to initialised door");
 
-  client
-    .poll(|topic, payload| {
-      // process messages concurrently
-      // we assume no door will use the same topic and thus only future will take a significant time
-      tokio::spawn(async move {
-        for door in doors {
-          door
-            .on_message(&topic, &payload)
-            .await
-            .expect("door message handling resulted in error")
-        }
-      });
-    })
-    .await;
+        let receive_channel = door.subscribe(&mut client).await.unwrap();
+
+        tokio::spawn(async move { door.listen(receive_channel).await });
+      }
+      _ => todo!(),
+    };
+  }
+
+  client.announce().await.expect("failed to announce client");
+
+  tokio::spawn(client.receive_messages());
+  client.send_messages().await.unwrap();
 }
