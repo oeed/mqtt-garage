@@ -1,5 +1,6 @@
 use std::{
   fmt::{self, write, Display},
+  str::FromStr,
   sync::Arc,
   time::Duration,
 };
@@ -91,11 +92,11 @@ impl<D: StateDetector + Send + 'static> Door<D> {
 
     if should_check {
       let mutex = Arc::clone(&mutex);
+      let ident = ident.clone();
       tokio::spawn(async move {
         // concurrently check if the door's state has changed
         loop {
           sleep(Duration::from_secs(2)).await;
-          println!("{} got checking state", &ident.0);
           mutex.lock().await.check_state().await.unwrap();
         }
       });
@@ -103,11 +104,8 @@ impl<D: StateDetector + Send + 'static> Door<D> {
 
     loop {
       if let Some(publish) = receive_channel.recv().await {
-        println!("{} got message: {:?}", &ident.0, &publish);
         if command_topic == &publish.topic {
-          println!("{} is on topic", &ident.0);
-          if let Ok(target_state) = toml::from_str(&publish.payload) {
-            println!("{} is state {:?}", &ident.0, &target_state);
+          if let Ok(target_state) = TargetState::from_str(&publish.payload) {
             let mut door = mutex.lock().await;
             println!("{} got told to moved to state: {:?}", &door, &target_state);
             door.to_target_state(target_state).await.unwrap()

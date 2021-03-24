@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 // TODO: using an actual mutex is probably overkill for this, although simpler than mucking with futures likely
 /// A mutex to provide exclusive access to the radio waves of a remote.
@@ -11,7 +11,7 @@ impl RemoteMutex {
     RemoteMutex(Mutex::new(()))
   }
 
-  pub fn lock(&self) -> std::sync::MutexGuard<'_, ()> {
-    self.0.lock().unwrap()
+  pub async fn lock(&self) -> tokio::sync::MutexGuard<'_, ()> {
+    self.0.lock().await
   }
 }

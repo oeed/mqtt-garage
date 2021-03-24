@@ -4,11 +4,14 @@ use std::{
 };
 
 use async_trait::async_trait;
+#[cfg(feature = "arm")]
 use rppal::gpio::{Gpio, InputPin};
 use serde::Deserialize;
 use serde_with::{serde_as, DurationSeconds};
 
 use super::{DetectedState, StateDetector, Travel};
+#[cfg(not(feature = "arm"))]
+use crate::mock_gpio::{Gpio, InputPin};
 use crate::{
   config::gpio::GpioPin,
   door::{state::TargetState, Identifier},
@@ -86,7 +89,7 @@ impl StateDetector for SensorStateDetector {
 
   fn with_config(_: Identifier, config: Self::Config) -> GarageResult<Self> {
     let gpio = Gpio::new()?;
-    let pin = gpio.get(config.pin.pin_number())?.into_input_pullup();
+    let pin = gpio.get(config.pin.bcm_number())?.into_input_pullup();
 
     Ok(SensorStateDetector {
       pin,

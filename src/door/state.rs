@@ -1,4 +1,4 @@
-use std::char::MAX;
+use std::{char::MAX, fmt, str::FromStr};
 
 use futures::{future::BoxFuture, FutureExt};
 use rumqttc::QoS;
@@ -29,6 +29,18 @@ impl TargetState {
   }
 }
 
+impl FromStr for TargetState {
+  type Err = ();
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    match s {
+      "OPEN" => Ok(TargetState::Open),
+      "CLOSED" => Ok(TargetState::Closed),
+      _ => Err(()),
+    }
+  }
+}
+
 impl PartialEq<TargetState> for State {
   fn eq(&self, other: &TargetState) -> bool {
     match (self, other) {
@@ -48,6 +60,17 @@ pub enum State {
   Closing,
   #[serde(rename = "closed")]
   Closed,
+}
+
+impl fmt::Display for State {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      State::Opening => write!(f, "opening"),
+      State::Open => write!(f, "open"),
+      State::Closing => write!(f, "closing"),
+      State::Closed => write!(f, "closed"),
+    }
+  }
 }
 
 impl From<DetectedState> for State {
@@ -109,7 +132,7 @@ impl<D: StateDetector + Send> Door<D> {
       self.target_state = target_state;
 
       for _ in 0..MAX_STUCK_TRAVELS {
-        match self.travel_if_needed(MAX_STUCK_TRAVELS).await? {
+        match self.travel_if_needed().await? {
           TravelResult::Successful => return Ok(()),
           TravelResult::Failed => continue,
         }
@@ -131,20 +154,20 @@ impl<D: StateDetector + Send> Door<D> {
         topic: self.state_topic.clone(),
         qos: QoS::AtLeastOnce,
         retain: true,
-        payload: toml::to_string(&current_state).unwrap(),
+        payload: current_state.to_string(),
       })
       .expect("MQTT channel cloesd");
     Ok(())
   }
 
-  async fn travel_if_needed(&mut self, remaining_travels: usize) -> GarageResult<TravelResult> {
+  async fn travel_if_needed(&mut self) -> GarageResult<TravelResult> {
     if self.current_state != self.target_state {
       // we're not in our target state, transition to travelling and trigger the door
       self.set_current_state(self.target_state.travel_state()).await?;
 
       // trigger the door
       println!("{} triggering remote", &self);
-      self.remote.trigger();
+      self.remote.trigger().await;
 
       self.monitor_travel().await
     }
@@ -181,13 +204,15 @@ impl<D: StateDetector + Send> Door<D> {
       println!("{} state manually changed to: {:?}", &self, &detected_state);
       // door was closed but it's now open
       self.target_state = TargetState::Open;
+      self.set_current_state(State::Opening).await?;
       self.monitor_travel().await?;
     }
     else if detected_state == DetectedState::Closed && self.current_state == State::Open {
       println!("{} state manually changed to: {:?}", &self, &detected_state);
       // door was open but it's now closed
       self.target_state = TargetState::Closed;
-      self.monitor_travel().await?;
+      // we don't need to monitor travel because if it's close it's 100% closed
+      self.set_current_state(State::Closed).await?;
     }
     else {
       println!("{} state unchanged", &self);

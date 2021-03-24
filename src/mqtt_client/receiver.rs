@@ -31,16 +31,17 @@ impl MqttReceiver {
   pub async fn receive_messages(&mut self) -> GarageResult<()> {
     loop {
       let notification = self.event_loop.poll().await?;
-      println!("Received = {:?}", notification);
       if let Event::Incoming(Packet::Publish(message)) = notification {
         if let Some(channel) = self.receive_channels.get(&message.topic) {
           if let Ok(payload) = String::from_utf8(message.payload.to_vec()) {
-            channel.send(MqttPublish {
-              topic: message.topic,
-              qos: message.qos,
-              retain: message.retain,
-              payload,
-            });
+            channel
+              .send(MqttPublish {
+                topic: message.topic,
+                qos: message.qos,
+                retain: message.retain,
+                payload,
+              })
+              .ok();
           }
         }
       }
