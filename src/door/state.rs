@@ -123,6 +123,7 @@ impl<D: StateDetector + Send> Door<D> {
   }
 
   pub async fn set_current_state(&mut self, current_state: State) -> GarageResult<()> {
+    println!("{} setting new state: {:?}", &self, current_state);
     self.current_state = current_state;
     self
       .send_channel
@@ -187,6 +188,9 @@ impl<D: StateDetector + Send> Door<D> {
       // door was open but it's now closed
       self.target_state = TargetState::Closed;
       self.monitor_travel().await?;
+    }
+    else {
+      println!("{} state unchanged", &self);
     }
 
     Ok(())

@@ -83,6 +83,7 @@ impl<D: StateDetector + Send> Door<D> {
 
 impl<D: StateDetector + Send + 'static> Door<D> {
   pub async fn listen(self, mut receive_channel: PublishReceiver) {
+    let ident = self.identifier.clone();
     println!("{} initialised", &self);
     let should_check = self.state_detector.should_check();
     let command_topic = &self.command_topic.clone();
@@ -94,6 +95,7 @@ impl<D: StateDetector + Send + 'static> Door<D> {
         // concurrently check if the door's state has changed
         loop {
           sleep(Duration::from_secs(2)).await;
+          println!("{} got checking state", &ident.0);
           mutex.lock().await.check_state().await.unwrap();
         }
       });
@@ -101,8 +103,11 @@ impl<D: StateDetector + Send + 'static> Door<D> {
 
     loop {
       if let Some(publish) = receive_channel.recv().await {
+        println!("{} got message: {:?}", &ident.0, &publish);
         if command_topic == &publish.topic {
+          println!("{} is on topic", &ident.0);
           if let Ok(target_state) = toml::from_str(&publish.payload) {
+            println!("{} is state {:?}", &ident.0, &target_state);
             let mut door = mutex.lock().await;
             println!("{} got told to moved to state: {:?}", &door, &target_state);
             door.to_target_state(target_state).await.unwrap()
