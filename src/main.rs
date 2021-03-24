@@ -27,7 +27,7 @@ async fn main() {
       StateDetectorConfig::Assumed(state_detector) => {
         // TODO: some elegant way to do this without copy paste
         let mut door = Door::<AssumedStateDetector>::with_config(
-          identifier,
+          identifier.into(),
           door_config.command_topic,
           door_config.state_topic,
           door_config.initial_target_state,
@@ -47,7 +47,7 @@ async fn main() {
       StateDetectorConfig::Sensor(state_detector) => {
         // TODO: some elegant way to do this without copy paste
         let mut door = Door::<SensorStateDetector>::with_config(
-          identifier,
+          identifier.into(),
           door_config.command_topic,
           door_config.state_topic,
           door_config.initial_target_state,

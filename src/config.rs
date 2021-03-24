@@ -15,5 +15,5 @@ pub struct Config {
   pub mqtt_client: MqttClientConfig,
   /// A list of all doors to control
   #[cfg(feature = "arm")]
-  pub doors: HashMap<door::Identifier, door::DoorConfig>,
+  pub doors: HashMap<String, door::DoorConfig>,
 }
