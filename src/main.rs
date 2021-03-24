@@ -17,23 +17,15 @@ async fn main() {
 
   let remote_mutex = RemoteMutex::new();
 
-  let mut client = MqttClient::with_config(config.mqtt_client);
-  let doors: Vec<_> = config
-    .doors
-    .into_iter()
-    .map(|(identifier, door)| {
-      Door::with_config(
-        identifier,
-        door.command_topic,
-        door.state_topic,
-        door.initial_target_state,
-        door.state_detector,
-        door.remote,
-        &client,
-        &remote_mutex,
-      )
-    })
-    .collect();
+  let client = &mut MqttClient::with_config(config.mqtt_client);
+  let doors: Vec<_> = try_join_all(
+    config
+      .doors
+      .into_iter()
+      .map(|(identifier, door)| ConcreteDoor::with_config(identifier, door, client, &remote_mutex)),
+  )
+  .await
+  .expect("unable to initialise doors");
 
 
   client
@@ -49,6 +41,5 @@ async fn main() {
         }
       });
     })
-    .await
-    .unwrap();
+    .await;
 }

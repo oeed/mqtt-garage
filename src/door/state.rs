@@ -1,5 +1,4 @@
-use std::{future::Future, pin::Pin};
-
+use futures::{future::BoxFuture, FutureExt};
 use rumqttc::QoS;
 use serde::{Deserialize, Serialize};
 
@@ -96,7 +95,7 @@ impl State {
 
 const MAX_STUCK_TRAVELS: usize = 5;
 
-impl<'a, D: StateDetector> Door<'a, D> {
+impl<'a, D: StateDetector + Send> Door<'a, D> {
   /// Tell the door to transition to the given target state
   pub async fn to_target_state(&mut self, target_state: TargetState) -> GarageResult<()> {
     // if this is already our target state we don't need to do anything
@@ -118,7 +117,8 @@ impl<'a, D: StateDetector> Door<'a, D> {
         true,
         &toml::to_string(&current_state).unwrap(),
       )
-      .await
+      .await?;
+    Ok(())
   }
 
   fn travel_if_needed<'b>(

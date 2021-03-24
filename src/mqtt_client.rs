@@ -78,7 +78,10 @@ impl MqttClient {
       .map_err(|err| err.into())
   }
 
-  pub async fn poll(mut self, on_message: fn(String, String) -> GarageResult<()>) -> GarageResult<()> {
+  pub async fn poll<F>(mut self, on_message: F) -> GarageResult<()>
+  where
+    F: Fn(String, String),
+  {
     // announce our availability
     self
       .publish(
@@ -96,7 +99,7 @@ impl MqttClient {
       if let Event::Incoming(Packet::Publish(message)) = notification {
         if self.subscribed_topics.contains(&message.topic) {
           if let Ok(payload) = String::from_utf8(message.payload.to_vec()) {
-            on_message(message.topic, payload)?
+            on_message(message.topic, payload)
           }
         }
       }

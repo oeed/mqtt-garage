@@ -10,6 +10,7 @@ use self::{
 use crate::{error::GarageResult, mqtt_client::MqttClient};
 
 mod command;
+pub mod concrete;
 pub mod config;
 pub mod identifier;
 mod remote;
@@ -17,7 +18,7 @@ pub mod state;
 mod state_detector;
 
 #[derive(Debug)]
-pub struct Door<'a, D: StateDetector> {
+pub struct Door<'a, D: StateDetector + Send> {
   identifier: Identifier,
   remote: DoorRemote<'a>,
   state_detector: D,
@@ -28,7 +29,7 @@ pub struct Door<'a, D: StateDetector> {
   state_topic: String,
 }
 
-impl<'a, D: StateDetector> Door<'a, D> {
+impl<'a, D: StateDetector + Send> Door<'a, D> {
   pub async fn with_config(
     identifier: Identifier,
     command_topic: String,
