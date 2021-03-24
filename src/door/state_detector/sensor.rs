@@ -110,8 +110,6 @@ impl StateDetector for SensorStateDetector {
   fn detect_state(&mut self) -> DetectedState {
     let detected_state: DetectedState = self.stable_state();
 
-    println!("detected state is: {:?}", detected_state);
-
     // check if this state indicates the door might be stuck
     if let Some(current_travel) = self.current_travel.take() {
       if current_travel.expired_invalid(detected_state, self.travel_time) {

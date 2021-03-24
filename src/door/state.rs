@@ -214,9 +214,6 @@ impl<D: StateDetector + Send> Door<D> {
       // we don't need to monitor travel because if it's close it's 100% closed
       self.set_current_state(State::Closed).await?;
     }
-    else {
-      println!("{} state unchanged", &self);
-    }
 
     Ok(())
   }
