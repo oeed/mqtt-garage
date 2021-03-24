@@ -38,7 +38,7 @@ impl PartialEq<TargetState> for State {
   }
 }
 
-#[derive(Serialize, Debug, Clone, Copy)]
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
   #[serde(rename = "opening")]
   Opening,
@@ -97,7 +97,7 @@ impl State {
 
 const MAX_STUCK_TRAVELS: usize = 5;
 
-impl<D: StateDetector> Door<D> {
+impl<D: StateDetector + Send> Door<D> {
   /// Tell the door to transition to the given target state
   pub async fn to_target_state(&mut self, target_state: TargetState) -> GarageResult<()> {
     if self.current_state.is_travelling() {
@@ -114,6 +114,7 @@ impl<D: StateDetector> Door<D> {
         }
       }
 
+      println!("Warning! door move failed");
       // TODO: door moved failed
     }
 
@@ -142,23 +143,46 @@ impl<D: StateDetector> Door<D> {
       // trigger the door
       self.remote.trigger();
 
-      // then wait for it to move
-      let detected_state = self.state_detector.travel(self.target_state).await;
-
-      // door (should have) finished moving, update our current state
-      let (current_state, result) = match detected_state {
-        DetectedState::Open => (State::Open, TravelResult::Successful),
-        DetectedState::Closed => (State::Closed, TravelResult::Successful),
-        // if the door seems to be stuck we assume it is where it was when it opened and reduce the number of times we're willing to try again
-        DetectedState::Stuck => (self.current_state.start_state().into(), TravelResult::Failed),
-      };
-      self.set_current_state(current_state).await?;
-
-      Ok(result)
+      self.monitor_travel().await
     }
     else {
       Ok(TravelResult::Successful)
     }
+  }
+
+  /// The door is moving, wait for it to move then observe the outcome
+  async fn monitor_travel(&mut self) -> GarageResult<TravelResult> {
+    // then wait for it to move
+    let detected_state = self.state_detector.travel(self.target_state).await;
+
+    // door (should have) finished moving, update our current state
+    let (current_state, result) = match detected_state {
+      DetectedState::Open => (State::Open, TravelResult::Successful),
+      DetectedState::Closed => (State::Closed, TravelResult::Successful),
+      // if the door seems to be stuck we assume it is where it was when it opened and reduce the number of times we're willing to try again
+      DetectedState::Stuck => (self.current_state.start_state().into(), TravelResult::Failed),
+    };
+    self.set_current_state(current_state).await?;
+
+    Ok(result)
+  }
+
+  /// Check the sensor's detected state, if different we assume the door was manually opened.
+  /// Thus we invoke a travel (without triggering the door)
+  pub async fn check_state(&mut self) -> GarageResult<()> {
+    let detected_state = self.state_detector.detect_state();
+    if detected_state == DetectedState::Open && self.current_state == State::Closed {
+      // door was closed but it's now open
+      self.target_state = TargetState::Open;
+      self.monitor_travel().await?;
+    }
+    else if detected_state == DetectedState::Closed && self.current_state == State::Open {
+      // door was open but it's now closed
+      self.target_state = TargetState::Closed;
+      self.monitor_travel().await?;
+    }
+
+    Ok(())
   }
 }
 

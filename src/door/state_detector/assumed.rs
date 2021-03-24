@@ -68,4 +68,8 @@ impl StateDetector for AssumedStateDetector {
       self.assumed_state
     }
   }
+
+  fn should_check(&self) -> bool {
+    false
+  }
 }

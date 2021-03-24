@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 pub use config::DoorConfig;
 pub use identifier::Identifier;
 pub use remote::mutex::RemoteMutex;
+use tokio::{sync::Mutex, time::sleep};
 
 use self::{
   remote::{DoorRemote, RemoteConfig},
@@ -22,7 +23,7 @@ pub mod state;
 pub mod state_detector;
 
 #[derive(Debug)]
-pub struct Door<D: StateDetector> {
+pub struct Door<D: StateDetector + Send> {
   identifier: Identifier,
   remote: DoorRemote,
   state_detector: D,
@@ -33,7 +34,7 @@ pub struct Door<D: StateDetector> {
   state_topic: String,
 }
 
-impl<D: StateDetector> Door<D> {
+impl<D: StateDetector + Send> Door<D> {
   pub async fn with_config(
     identifier: Identifier,
     command_topic: String,
@@ -66,13 +67,30 @@ impl<D: StateDetector> Door<D> {
 
     Ok(door)
   }
+}
 
-  pub async fn listen(mut self, mut receive_channel: PublishReceiver) {
+impl<D: StateDetector + Send + 'static> Door<D> {
+  pub async fn listen(self, mut receive_channel: PublishReceiver) {
+    let should_check = self.state_detector.should_check();
+    let command_topic = &self.command_topic.clone();
+    let mutex = Arc::new(Mutex::new(self));
+
+    if should_check {
+      let mutex = Arc::clone(&mutex);
+      tokio::spawn(async move {
+        // concurrently check if the door's state has changed
+        loop {
+          sleep(Duration::from_secs(2)).await;
+          mutex.lock().await.check_state().await.unwrap();
+        }
+      });
+    }
+
     loop {
       if let Some(publish) = receive_channel.recv().await {
-        if &self.command_topic == &publish.topic {
+        if command_topic == &publish.topic {
           if let Ok(target_state) = toml::from_str(&publish.payload) {
-            self.to_target_state(target_state).await.unwrap()
+            mutex.lock().await.to_target_state(target_state).await.unwrap()
           }
         }
       }

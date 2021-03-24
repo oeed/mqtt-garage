@@ -116,4 +116,8 @@ impl StateDetector for SensorStateDetector {
 
     detected_state
   }
+
+  fn should_check(&self) -> bool {
+    true
+  }
 }

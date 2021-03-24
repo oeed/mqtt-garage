@@ -6,7 +6,7 @@ use crate::{
 
 
 /// Detecting open/close commands and acting upon them
-impl<D: StateDetector> Door<D> {
+impl<D: StateDetector + Send> Door<D> {
   pub async fn subscribe(&mut self, mqtt_receiver: &mut MqttReceiver) -> GarageResult<PublishReceiver> {
     mqtt_receiver
       .subscribe(self.command_topic.clone(), rumqttc::QoS::AtLeastOnce)

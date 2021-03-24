@@ -29,6 +29,9 @@ pub trait StateDetector: Debug {
   ///
   /// Future resolves when the door *should* have finished travelling in the state it was detected in
   async fn travel(&mut self, target_state: TargetState) -> DetectedState;
+
+  /// whether the state detector should be periodically checked for updates
+  fn should_check(&self) -> bool;
 }
 
 #[serde(untagged)]
