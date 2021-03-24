@@ -1,11 +1,14 @@
 use std::{
-  borrow::{Borrow, BorrowMut},
   fs,
+  sync::{Arc, Mutex, RwLock},
 };
 
 use mqtt_garage::{
   config::Config,
-  door::{state_detector::sensor::SensorStateDetector, Door, RemoteMutex},
+  door::{
+    state_detector::{assumed::AssumedStateDetector, sensor::SensorStateDetector, StateDetector, StateDetectorConfig},
+    Door, RemoteMutex,
+  },
   mqtt_client::MqttClient,
 };
 use tokio;
