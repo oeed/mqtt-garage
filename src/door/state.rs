@@ -42,6 +42,15 @@ impl FromStr for TargetState {
   }
 }
 
+impl fmt::Display for TargetState {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      TargetState::Open => write!(f, "OPEN"),
+      TargetState::Closed => write!(f, "CLOSED"),
+    }
+  }
+}
+
 impl PartialEq<TargetState> for State {
   fn eq(&self, other: &TargetState) -> bool {
     match (self, other) {

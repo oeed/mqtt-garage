@@ -2,3 +2,4 @@
 .DS_Store
 .env
 garage-config.toml
+*.state
