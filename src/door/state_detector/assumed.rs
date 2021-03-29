@@ -68,8 +68,9 @@ impl StateDetector for AssumedStateDetector {
   fn detect_state(&mut self) -> DetectedState {
     if let Some(current_travel) = &self.current_travel {
       if current_travel.expired_invalid(self.assumed_state.into(), self.travel_time) {
+        let target_state = current_travel.target_state;
         // door was moving and should've finished by now, we assume it's finished. move to the target state
-        self.set_assumed_state(current_travel.target_state);
+        self.set_assumed_state(target_state);
         self.current_travel = None;
         // TODO: write to file
         self.assumed_state.into()
