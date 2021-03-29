@@ -30,7 +30,7 @@ impl DoorRemote {
 
   /// Trigger the remote to send the open/close signal
   pub async fn trigger(&mut self) {
-    let guard = self.mutex.lock();
+    let guard = self.mutex.lock().await;
     self.pin.set_high();
     tokio::time::sleep(self.config.pressed_time).await;
     self.pin.set_low();
