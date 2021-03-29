@@ -1,9 +1,4 @@
-use std::{
-  fmt::{self, write, Display},
-  str::FromStr,
-  sync::Arc,
-  time::Duration,
-};
+use std::{fmt, str::FromStr, sync::Arc, time::Duration};
 
 pub use config::DoorConfig;
 pub use identifier::Identifier;
@@ -85,7 +80,6 @@ impl<D: StateDetector + Send> Door<D> {
 
 impl<D: StateDetector + Send + 'static> Door<D> {
   pub async fn listen(self, mut receive_channel: PublishReceiver) {
-    let ident = self.identifier.clone();
     info!("{} initialised", &self);
     let should_check = self.state_detector.should_check();
     let command_topic = &self.command_topic.clone();
@@ -93,7 +87,6 @@ impl<D: StateDetector + Send + 'static> Door<D> {
 
     if should_check {
       let mutex = Arc::clone(&mutex);
-      let ident = ident.clone();
       tokio::spawn(async move {
         // concurrently check if the door's state has changed
         loop {

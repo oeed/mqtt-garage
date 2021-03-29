@@ -1,12 +1,11 @@
-use std::{
-  fs,
-  sync::{Arc, Mutex, RwLock},
-};
+#![warn(rust_2018_idioms)]
+
+use std::{fs, sync::Arc};
 
 use mqtt_garage::{
   config::Config,
   door::{
-    state_detector::{assumed::AssumedStateDetector, sensor::SensorStateDetector, StateDetector, StateDetectorConfig},
+    state_detector::{assumed::AssumedStateDetector, sensor::SensorStateDetector, StateDetectorConfig},
     Door, RemoteMutex,
   },
   mqtt_client::MqttClient,

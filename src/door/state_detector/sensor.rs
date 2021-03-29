@@ -1,7 +1,4 @@
-use std::{
-  thread::sleep,
-  time::{Duration, SystemTime},
-};
+use std::{thread::sleep, time::Duration};
 
 use async_trait::async_trait;
 #[cfg(feature = "arm")]

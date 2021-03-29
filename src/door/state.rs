@@ -1,6 +1,5 @@
-use std::{char::MAX, fmt, str::FromStr};
+use std::{fmt, str::FromStr};
 
-use futures::{future::BoxFuture, FutureExt};
 use log::{debug, warn};
 use rumqttc::QoS;
 use serde::{Deserialize, Serialize};

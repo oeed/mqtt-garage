@@ -1,17 +1,11 @@
-use core::panic;
 use std::{
-  borrow::Borrow,
-  collections::{HashMap, HashSet},
-  convert::TryFrom,
+  collections::HashMap,
   fmt::{self, Debug},
-  future::Future,
-  pin::Pin,
 };
 
-use futures::channel::mpsc::UnboundedReceiver;
-use rumqttc::{AsyncClient, Event, EventLoop, Incoming, LastWill, MqttOptions, Packet, Publish, QoS};
+use rumqttc::{AsyncClient, LastWill, MqttOptions, QoS};
 use serde::Deserialize;
-use tokio::{sync::mpsc, task};
+use tokio::sync::mpsc;
 
 use self::{
   receiver::MqttReceiver,
@@ -45,7 +39,6 @@ pub struct MqttPublish {
 }
 
 pub struct MqttClient {
-  client: AsyncClient,
   availability_topic: String,
   online_availability: String,
   pub sender: MqttSender,
@@ -76,7 +69,6 @@ impl MqttClient {
     (
       send_tx,
       MqttClient {
-        client: client.clone(),
         availability_topic: config.availability_topic,
         online_availability: config.online_availability,
         receiver: MqttReceiver {
