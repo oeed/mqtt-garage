@@ -11,10 +11,16 @@ use mqtt_garage::{
   },
   mqtt_client::MqttClient,
 };
+use simple_logger::SimpleLogger;
 use tokio;
 
 #[tokio::main]
 async fn main() {
+  SimpleLogger::new()
+    .with_module_level("rumqttc", log::LevelFilter::Warn)
+    .init()
+    .unwrap();
+
   let config = fs::read_to_string("garage-config.toml").expect("unable to read garage-config.toml");
   let config: Config = toml::from_str(&config).expect("unable to parse garage-config.toml");
 

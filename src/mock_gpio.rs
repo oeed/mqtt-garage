@@ -3,11 +3,13 @@
 pub use std::fmt::Error;
 use std::fs;
 
+use log::{debug, warn};
+
 pub struct Gpio;
 
 impl Gpio {
   pub fn new() -> Result<Gpio, Error> {
-    println!("WARNING! Using mock GPIO.");
+    warn!("Using mock GPIO");
     Ok(Gpio)
   }
 
@@ -34,11 +36,11 @@ pub struct OutputPin(u8);
 
 impl OutputPin {
   pub fn set_high(&self) {
-    println!("{:?} set to high", self)
+    debug!("{:?} set to high", self)
   }
 
   pub fn set_low(&self) {
-    println!("{:?} set to low", self)
+    debug!("{:?} set to low", self)
   }
 }
 

@@ -7,6 +7,7 @@ use std::{
 
 pub use config::DoorConfig;
 pub use identifier::Identifier;
+use log::{debug, info};
 pub use remote::mutex::RemoteMutex;
 use tokio::{sync::Mutex, time::sleep};
 
@@ -85,7 +86,7 @@ impl<D: StateDetector + Send> Door<D> {
 impl<D: StateDetector + Send + 'static> Door<D> {
   pub async fn listen(self, mut receive_channel: PublishReceiver) {
     let ident = self.identifier.clone();
-    println!("{} initialised", &self);
+    info!("{} initialised", &self);
     let should_check = self.state_detector.should_check();
     let command_topic = &self.command_topic.clone();
     let mutex = Arc::new(Mutex::new(self));
@@ -107,7 +108,7 @@ impl<D: StateDetector + Send + 'static> Door<D> {
         if command_topic == &publish.topic {
           if let Ok(target_state) = TargetState::from_str(&publish.payload) {
             let mut door = mutex.lock().await;
-            println!("{} got told to moved to state: {:?}", &door, &target_state);
+            debug!("{} got told to moved to state: {:?}", &door, &target_state);
             door.to_target_state(target_state).await.unwrap()
           }
         }

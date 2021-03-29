@@ -1,6 +1,7 @@
 use std::{char::MAX, fmt, str::FromStr};
 
 use futures::{future::BoxFuture, FutureExt};
+use log::{debug, warn};
 use rumqttc::QoS;
 use serde::{Deserialize, Serialize};
 
@@ -128,7 +129,7 @@ impl<D: StateDetector + Send> Door<D> {
     }
     // if this is already our target state we don't need to do anything
     if self.target_state != target_state {
-      println!("{} moving to state: {:?}", &self, &target_state);
+      debug!("{} moving to state: {:?}", &self, &target_state);
       self.target_state = target_state;
 
       for _ in 0..MAX_STUCK_TRAVELS {
@@ -138,7 +139,7 @@ impl<D: StateDetector + Send> Door<D> {
         }
       }
 
-      println!("Warning! door move failed");
+      warn!("{} move failed", &self);
       // TODO: door moved failed
     }
 
@@ -146,7 +147,7 @@ impl<D: StateDetector + Send> Door<D> {
   }
 
   pub async fn set_current_state(&mut self, current_state: State) -> GarageResult<()> {
-    println!("{} setting new state: {:?}", &self, current_state);
+    debug!("{} setting new state: {:?}", &self, current_state);
     self.current_state = current_state;
     self
       .send_channel
@@ -166,7 +167,7 @@ impl<D: StateDetector + Send> Door<D> {
       self.set_current_state(self.target_state.travel_state()).await?;
 
       // trigger the door
-      println!("{} triggering remote", &self);
+      debug!("{} triggering remote", &self);
       self.remote.trigger().await;
 
       self.monitor_travel().await
@@ -179,9 +180,9 @@ impl<D: StateDetector + Send> Door<D> {
   /// The door is moving, wait for it to move then observe the outcome
   async fn monitor_travel(&mut self) -> GarageResult<TravelResult> {
     // then wait for it to move
-    println!("{} travelling...", &self);
+    debug!("{} travelling...", &self);
     let detected_state = self.state_detector.travel(self.target_state).await;
-    println!("{} travel result: {:?}", &self, &detected_state);
+    debug!("{} travel result: {:?}", &self, &detected_state);
 
 
     // door (should have) finished moving, update our current state
@@ -201,14 +202,14 @@ impl<D: StateDetector + Send> Door<D> {
   pub async fn check_state(&mut self) -> GarageResult<()> {
     let detected_state = self.state_detector.detect_state();
     if detected_state == DetectedState::Open && self.current_state == State::Closed {
-      println!("{} state manually changed to: {:?}", &self, &detected_state);
+      debug!("{} state manually changed to: {:?}", &self, &detected_state);
       // door was closed but it's now open
       self.target_state = TargetState::Open;
       self.set_current_state(State::Opening).await?;
       self.monitor_travel().await?;
     }
     else if detected_state == DetectedState::Closed && self.current_state == State::Open {
-      println!("{} state manually changed to: {:?}", &self, &detected_state);
+      debug!("{} state manually changed to: {:?}", &self, &detected_state);
       // door was open but it's now closed
       self.target_state = TargetState::Closed;
       // we don't need to monitor travel because if it's close it's 100% closed
