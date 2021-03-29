@@ -7,6 +7,7 @@ pub struct Gpio;
 
 impl Gpio {
   pub fn new() -> Result<Gpio, Error> {
+    println!("WARNING! Using mock GPIO.");
     Ok(Gpio)
   }
 
