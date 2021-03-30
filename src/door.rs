@@ -8,7 +8,7 @@ use tokio::{sync::Mutex, time::sleep};
 
 use self::{
   remote::{DoorRemote, RemoteConfig},
-  state::{State, TargetState},
+  state::{State, Stuck, TargetState},
   state_detector::StateDetector,
 };
 use crate::{
@@ -33,6 +33,8 @@ pub struct Door<D: StateDetector + Send> {
   send_channel: PublishSender,
   command_topic: String,
   state_topic: String,
+  stuck_topic: Option<String>,
+  stuck: Stuck,
 }
 
 impl<D: StateDetector + Send> fmt::Display for Door<D> {
@@ -46,6 +48,7 @@ impl<D: StateDetector + Send> Door<D> {
     identifier: Identifier,
     command_topic: String,
     state_topic: String,
+    stuck_topic: Option<String>,
     initial_target_state: Option<TargetState>,
     remote: RemoteConfig,
     state_detector: D::Config,
@@ -65,7 +68,9 @@ impl<D: StateDetector + Send> Door<D> {
       current_state: initial_state,
       command_topic,
       state_topic,
+      stuck_topic,
       send_channel,
+      stuck: Stuck::Ok,
     };
 
     door.set_current_state(initial_state).await?;

@@ -59,6 +59,21 @@ impl PartialEq<TargetState> for State {
   }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stuck {
+  Ok,
+  Stuck,
+}
+
+impl fmt::Display for Stuck {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Stuck::Ok => write!(f, "ok"),
+      Stuck::Stuck => write!(f, "stuck"),
+    }
+  }
+}
+
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
   #[serde(rename = "opening")]
@@ -142,16 +157,34 @@ impl<D: StateDetector + Send> Door<D> {
 
       for _ in 0..MAX_STUCK_TRAVELS {
         match self.travel_if_needed().await? {
-          TravelResult::Successful => return Ok(()),
+          TravelResult::Successful => {
+            self.set_stuck(Stuck::Ok);
+            return Ok(());
+          }
           TravelResult::Failed => continue,
         }
       }
 
-      warn!("{} move failed", &self);
-      // TODO: door moved failed
+      warn!("Garage appears to be stuck!");
+      self.set_stuck(Stuck::Stuck);
     }
 
     Ok(())
+  }
+
+  pub fn set_stuck(&mut self, stuck: Stuck) {
+    self.stuck = stuck;
+    if let Some(stuck_topic) = &self.stuck_topic {
+      self
+        .send_channel
+        .send(MqttPublish {
+          topic: stuck_topic.clone(),
+          qos: QoS::AtLeastOnce,
+          retain: true,
+          payload: stuck.to_string(),
+        })
+        .expect("MQTT channel closed");
+    }
   }
 
   pub async fn set_current_state(&mut self, current_state: State) -> GarageResult<()> {
@@ -165,7 +198,7 @@ impl<D: StateDetector + Send> Door<D> {
         retain: true,
         payload: current_state.to_string(),
       })
-      .expect("MQTT channel cloesd");
+      .expect("MQTT channel closed");
     Ok(())
   }
 

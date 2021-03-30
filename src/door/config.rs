@@ -10,6 +10,9 @@ pub struct DoorConfig {
   /// The name of the MQTT topic state change commands are sent on
   pub state_topic: String,
 
+  /// The name of the MQTT topic stuck state change commands are sent on, if desired
+  pub stuck_topic: Option<String>,
+
   /// If set, when first turned on the door will attempt to move to this state
   pub initial_target_state: Option<TargetState>,
 
