@@ -173,17 +173,19 @@ impl<D: StateDetector + Send> Door<D> {
   }
 
   pub fn set_stuck(&mut self, stuck: Stuck) {
-    self.stuck = stuck;
-    if let Some(stuck_topic) = &self.stuck_topic {
-      self
-        .send_channel
-        .send(MqttPublish {
-          topic: stuck_topic.clone(),
-          qos: QoS::AtLeastOnce,
-          retain: true,
-          payload: stuck.to_string(),
-        })
-        .expect("MQTT channel closed");
+    if self.stuck != stuck {
+      self.stuck = stuck;
+      if let Some(stuck_topic) = &self.stuck_topic {
+        self
+          .send_channel
+          .send(MqttPublish {
+            topic: stuck_topic.clone(),
+            qos: QoS::AtLeastOnce,
+            retain: false,
+            payload: stuck.to_string(),
+          })
+          .expect("MQTT channel closed");
+      }
     }
   }
 
