@@ -1,6 +1,6 @@
 #![warn(rust_2018_idioms)]
 
-use std::{fs, sync::Arc};
+use std::{fs, process, sync::Arc, time::Duration};
 
 use mqtt_garage::{
   config::Config,
@@ -8,10 +8,11 @@ use mqtt_garage::{
     state_detector::{assumed::AssumedStateDetector, sensor::SensorStateDetector, StateDetectorConfig},
     Door, RemoteMutex,
   },
+  error::GarageError,
   mqtt_client::MqttClient,
 };
 use simple_logger::SimpleLogger;
-use tokio;
+use tokio::{self, time::sleep};
 
 #[tokio::main]
 async fn main() {
@@ -20,6 +21,17 @@ async fn main() {
     .init()
     .unwrap();
 
+  loop {
+    let err = run().await;
+    log::error!("Error occurred, restarting in 5 seconds: {:?}", err);
+    // wait some time for the broker to come back online
+    sleep(Duration::from_secs(5)).await;
+  }
+}
+
+/// Run the MQTT receiver and sender and react
+/// Runs forever unless an error occurs
+async fn run() -> GarageError {
   let config = fs::read_to_string("garage-config.toml").expect("unable to read garage-config.toml");
   let config: Config = toml::from_str(&config).expect("unable to parse garage-config.toml");
 
@@ -45,9 +57,10 @@ async fn main() {
         .await
         .expect("failed to initialised door");
 
-        let receive_channel = door.subscribe(&mut client.receiver).await.unwrap();
-
-        tokio::spawn(async move { door.listen(receive_channel).await });
+        match door.subscribe(&mut client.receiver).await {
+          Ok(receive_channel) => tokio::spawn(async move { door.listen(receive_channel).await }),
+          Err(err) => return err,
+        };
       }
 
       StateDetectorConfig::Sensor(state_detector) => {
@@ -66,9 +79,10 @@ async fn main() {
         .await
         .expect("failed to initialised door");
 
-        let receive_channel = door.subscribe(&mut client.receiver).await.unwrap();
-
-        tokio::spawn(async move { door.listen(receive_channel).await });
+        match door.subscribe(&mut client.receiver).await {
+          Ok(receive_channel) => tokio::spawn(async move { door.listen(receive_channel).await }),
+          Err(err) => return err,
+        };
       }
     };
   }
@@ -76,8 +90,11 @@ async fn main() {
   client.announce().await.expect("failed to announce client");
 
   let mut receiver = client.receiver;
-  tokio::spawn(async move { receiver.receive_messages().await.unwrap() });
+  let receive = tokio::spawn(async move { receiver.receive_messages().await.unwrap() });
 
   let mut sender = client.sender;
-  sender.send_messages().await.unwrap();
+  let send = tokio::spawn(async move { sender.send_messages().await.unwrap() });
+
+  // the two tasks will only end if an error occurs (most likely MQTT broker disconnection)
+  tokio::try_join!(receive, send).unwrap_err().into()
 }

@@ -1,5 +1,7 @@
 use std::{error, fmt};
 
+use tokio::task::JoinError;
+
 pub type GarageResult<T> = Result<T, GarageError>;
 
 #[derive(Debug)]
@@ -10,6 +12,7 @@ pub enum GarageError {
   GPIO(crate::mock_gpio::Error),
   MQTTClient(rumqttc::ClientError),
   MQTTConnection(rumqttc::ConnectionError),
+  JoinError(JoinError),
 }
 
 
@@ -19,6 +22,7 @@ impl fmt::Display for GarageError {
       GarageError::GPIO(ref e) => e.fmt(f),
       GarageError::MQTTClient(ref e) => e.fmt(f),
       GarageError::MQTTConnection(ref e) => e.fmt(f),
+      GarageError::JoinError(ref e) => e.fmt(f),
     }
   }
 }
@@ -29,6 +33,7 @@ impl error::Error for GarageError {
       GarageError::GPIO(ref e) => Some(e),
       GarageError::MQTTClient(ref e) => Some(e),
       GarageError::MQTTConnection(ref e) => Some(e),
+      GarageError::JoinError(ref e) => Some(e),
     }
   }
 }
@@ -53,9 +58,14 @@ impl From<rumqttc::ClientError> for GarageError {
   }
 }
 
-
 impl From<rumqttc::ConnectionError> for GarageError {
   fn from(err: rumqttc::ConnectionError) -> GarageError {
     GarageError::MQTTConnection(err)
+  }
+}
+
+impl From<JoinError> for GarageError {
+  fn from(err: JoinError) -> GarageError {
+    GarageError::JoinError(err)
   }
 }
