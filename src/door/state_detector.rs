@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use self::{assumed::AssumedStateDetectorConfig, sensor::SensorStateDetectorConfig};
 use super::{state::TargetState, Identifier};
-use crate::error::GarageResult;
+use crate::{error::GarageResult, mqtt_client::MqttPublish};
 
 pub mod assumed;
 pub mod sensor;
@@ -32,10 +32,12 @@ pub trait StateDetector: Debug {
 
   /// whether the state detector should be periodically checked for updates
   fn should_check(&self) -> bool;
+
+  fn receive_message(&mut self, _publish: MqttPublish) {}
 }
 
-#[serde(untagged)]
 #[derive(Debug, Deserialize)]
+#[serde(untagged)]
 pub enum StateDetectorConfig {
   Sensor(SensorStateDetectorConfig),
   Assumed(AssumedStateDetectorConfig),

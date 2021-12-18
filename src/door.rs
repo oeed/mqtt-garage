@@ -110,6 +110,10 @@ impl<D: StateDetector + Send + 'static> Door<D> {
             door.to_target_state(target_state).await.unwrap()
           }
         }
+        else {
+          let mut door = mutex.lock().await;
+          door.state_detector.receive_message(publish);
+        }
       }
       else {
         // channel ended

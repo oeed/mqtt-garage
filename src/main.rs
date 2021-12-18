@@ -1,6 +1,6 @@
 #![warn(rust_2018_idioms)]
 
-use std::{fs, process, sync::Arc, time::Duration};
+use std::{fs, sync::Arc, time::Duration};
 
 use mqtt_garage::{
   config::Config,

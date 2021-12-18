@@ -9,6 +9,7 @@ use super::{DetectedState, StateDetector, Travel};
 use crate::{
   door::{state::TargetState, Identifier},
   error::GarageResult,
+  mqtt_client::MqttPublish,
 };
 
 #[serde_as]
@@ -17,6 +18,8 @@ pub struct AssumedStateDetectorConfig {
   #[serde_as(as = "DurationSeconds<u64>")]
   /// How long the door is assumed to take to go to/from open/close.
   pub travel_time: Duration,
+  /// Top topic state overrides can be sent to to correct an incorrect state.
+  pub override_topic: String,
 }
 
 
@@ -24,6 +27,7 @@ pub struct AssumedStateDetectorConfig {
 pub struct AssumedStateDetector {
   identifier: Identifier, // TODO: can we borrow this?
   travel_time: Duration,
+  override_topic: String,
   current_travel: Option<Travel>,
   assumed_state: TargetState,
 }
@@ -50,6 +54,7 @@ impl StateDetector for AssumedStateDetector {
     Ok(AssumedStateDetector {
       identifier,
       travel_time: config.travel_time,
+      override_topic: config.override_topic,
       current_travel: None,
       assumed_state,
     })
@@ -88,5 +93,13 @@ impl StateDetector for AssumedStateDetector {
 
   fn should_check(&self) -> bool {
     false
+  }
+
+  fn receive_message(&mut self, publish: MqttPublish) {
+    if &self.override_topic == &publish.topic {
+      if let Ok(override_state) = TargetState::from_str(&publish.payload) {
+        self.set_assumed_state(override_state);
+      }
+    }
   }
 }
