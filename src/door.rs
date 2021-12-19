@@ -13,7 +13,7 @@ use self::{
 };
 use crate::{
   error::GarageResult,
-  mqtt_client::{receiver::PublishReceiver, sender::PublishSender},
+  mqtt_client::{receiver::MqttReceiver, sender::PublishSender},
 };
 
 mod command;
@@ -84,10 +84,13 @@ impl<D: StateDetector + Send> Door<D> {
 }
 
 impl<D: StateDetector + Send + 'static> Door<D> {
-  pub async fn listen(self, mut receive_channel: PublishReceiver) {
+  pub async fn listen(mut self, receiver: &mut MqttReceiver) -> GarageResult<()> {
     info!("{} initialised", &self);
+    let mut door_receive_channel = self.subscribe(receiver).await?;
+    let state_detector_receive_channel = self.state_detector.subscribe(receiver).await?;
+
     let should_check = self.state_detector.should_check();
-    let command_topic = &self.command_topic.clone();
+    let command_topic = self.command_topic.clone();
     let mutex = Arc::new(Mutex::new(self));
 
     if should_check {
@@ -101,24 +104,40 @@ impl<D: StateDetector + Send + 'static> Door<D> {
       });
     }
 
-    loop {
-      if let Some(publish) = receive_channel.recv().await {
-        if command_topic == &publish.topic {
-          if let Ok(target_state) = TargetState::from_str(&publish.payload) {
+    if let Some(mut state_detector_receive_channel) = state_detector_receive_channel {
+      let mutex = Arc::clone(&mutex);
+      tokio::spawn(async move {
+        loop {
+          if let Some(publish) = state_detector_receive_channel.recv().await {
             let mut door = mutex.lock().await;
-            debug!("{} got told to moved to state: {:?}", &door, &target_state);
-            door.to_target_state(target_state).await.unwrap()
+            door.state_detector.receive_message(publish);
+          }
+          else {
+            // channel ended
+            return;
+          }
+        }
+      });
+    }
+
+    tokio::spawn(async move {
+      loop {
+        if let Some(publish) = door_receive_channel.recv().await {
+          if &command_topic == &publish.topic {
+            if let Ok(target_state) = TargetState::from_str(&publish.payload) {
+              let mut door = mutex.lock().await;
+              debug!("{} got told to moved to state: {:?}", &door, &target_state);
+              door.to_target_state(target_state).await.unwrap()
+            }
           }
         }
         else {
-          let mut door = mutex.lock().await;
-          door.state_detector.receive_message(publish);
+          // channel ended
+          return;
         }
       }
-      else {
-        // channel ended
-        return;
-      }
-    }
+    });
+
+    Ok(())
   }
 }

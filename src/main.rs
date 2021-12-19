@@ -43,7 +43,7 @@ async fn run() -> GarageError {
     match door_config.state_detector {
       StateDetectorConfig::Assumed(state_detector) => {
         // TODO: some elegant way to do this without copy paste
-        let mut door = Door::<AssumedStateDetector>::with_config(
+        let door = Door::<AssumedStateDetector>::with_config(
           identifier.into(),
           door_config.command_topic,
           door_config.state_topic,
@@ -57,15 +57,14 @@ async fn run() -> GarageError {
         .await
         .expect("failed to initialised door");
 
-        match door.subscribe(&mut client.receiver).await {
-          Ok(receive_channel) => tokio::spawn(async move { door.listen(receive_channel).await }),
-          Err(err) => return err,
-        };
+        if let Err(err) = door.listen(&mut client.receiver).await {
+          return err;
+        }
       }
 
       StateDetectorConfig::Sensor(state_detector) => {
         // TODO: some elegant way to do this without copy paste
-        let mut door = Door::<SensorStateDetector>::with_config(
+        let door = Door::<SensorStateDetector>::with_config(
           identifier.into(),
           door_config.command_topic,
           door_config.state_topic,
@@ -79,10 +78,9 @@ async fn run() -> GarageError {
         .await
         .expect("failed to initialised door");
 
-        match door.subscribe(&mut client.receiver).await {
-          Ok(receive_channel) => tokio::spawn(async move { door.listen(receive_channel).await }),
-          Err(err) => return err,
-        };
+        if let Err(err) = door.listen(&mut client.receiver).await {
+          return err;
+        }
       }
     };
   }

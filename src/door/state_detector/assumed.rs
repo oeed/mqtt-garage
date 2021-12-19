@@ -9,7 +9,10 @@ use super::{DetectedState, StateDetector, Travel};
 use crate::{
   door::{state::TargetState, Identifier},
   error::GarageResult,
-  mqtt_client::MqttPublish,
+  mqtt_client::{
+    receiver::{MqttReceiver, PublishReceiver},
+    MqttPublish,
+  },
 };
 
 #[serde_as]
@@ -92,7 +95,15 @@ impl StateDetector for AssumedStateDetector {
   }
 
   fn should_check(&self) -> bool {
-    false
+    true
+  }
+
+  async fn subscribe(&mut self, mqtt_receiver: &mut MqttReceiver) -> GarageResult<Option<PublishReceiver>> {
+    Ok(Some(
+      mqtt_receiver
+        .subscribe(self.override_topic.clone(), rumqttc::QoS::AtLeastOnce)
+        .await?,
+    ))
   }
 
   fn receive_message(&mut self, publish: MqttPublish) {
