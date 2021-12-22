@@ -38,6 +38,7 @@ pub struct AssumedStateDetector {
 impl AssumedStateDetector {
   fn set_assumed_state(&mut self, assumed_state: TargetState) {
     self.assumed_state = assumed_state;
+    self.current_travel = None;
     if let Err(err) = fs::write(format!("{}.state", &self.identifier.0), assumed_state.to_string()) {
       warn!("failed to write assumed state: {}", err);
     }
@@ -79,7 +80,6 @@ impl StateDetector for AssumedStateDetector {
         let target_state = current_travel.target_state;
         // door was moving and should've finished by now, we assume it's finished. move to the target state
         self.set_assumed_state(target_state);
-        self.current_travel = None;
         // TODO: write to file
         self.assumed_state.into()
       }
@@ -109,6 +109,7 @@ impl StateDetector for AssumedStateDetector {
   fn receive_message(&mut self, publish: MqttPublish) {
     if &self.override_topic == &publish.topic {
       if let Ok(override_state) = TargetState::from_str(&publish.payload) {
+        log::info!("{:?} overriding state to {:?}", &self.identifier, override_state);
         self.set_assumed_state(override_state);
       }
     }
