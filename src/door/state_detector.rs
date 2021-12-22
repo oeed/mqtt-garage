@@ -7,7 +7,10 @@ use async_trait::async_trait;
 use serde::Deserialize;
 
 use self::{assumed::AssumedStateDetectorConfig, sensor::SensorStateDetectorConfig};
-use super::{state::TargetState, Identifier};
+use super::{
+  state::{State, TargetState},
+  Identifier,
+};
 use crate::{
   error::GarageResult,
   mqtt_client::{
@@ -44,6 +47,9 @@ pub trait StateDetector: Debug {
   }
 
   fn receive_message(&mut self, _publish: MqttPublish) {}
+
+  /// Get the state the door should be in when detecting a manual change to the given target state
+  fn manual_travel_state(&self, target_state: TargetState) -> State;
 }
 
 #[derive(Debug, Deserialize)]

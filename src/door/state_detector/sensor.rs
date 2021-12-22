@@ -11,7 +11,10 @@ use super::{DetectedState, StateDetector, Travel};
 use crate::mock_gpio::{Gpio, InputPin};
 use crate::{
   config::gpio::GpioPin,
-  door::{state::TargetState, Identifier},
+  door::{
+    state::{State, TargetState},
+    Identifier,
+  },
   error::GarageResult,
 };
 
@@ -119,5 +122,13 @@ impl StateDetector for SensorStateDetector {
 
   fn should_check(&self) -> bool {
     true
+  }
+
+  fn manual_travel_state(&self, target_state: TargetState) -> State {
+    match target_state {
+      // the sensor indicates if it's closed, so once no longer closed we assume opening
+      TargetState::Open => State::Opening,
+      TargetState::Closed => State::Closed,
+    }
   }
 }

@@ -244,19 +244,27 @@ impl<D: StateDetector + Send> Door<D> {
   /// Thus we invoke a travel (without triggering the door)
   pub async fn check_state(&mut self) -> GarageResult<()> {
     let detected_state = self.state_detector.detect_state();
-    if detected_state == DetectedState::Open && self.current_state == State::Closed {
-      debug!("{} state manually changed to: {:?}", &self, &detected_state);
+    let target_state = if detected_state == DetectedState::Open && self.current_state == State::Closed {
       // door was closed but it's now open
-      self.target_state = TargetState::Open;
-      self.set_current_state(State::Opening).await?;
-      self.monitor_travel().await?;
+      Some(TargetState::Open)
     }
     else if detected_state == DetectedState::Closed && self.current_state == State::Open {
-      debug!("{} state manually changed to: {:?}", &self, &detected_state);
       // door was open but it's now closed
-      self.target_state = TargetState::Closed;
-      // we don't need to monitor travel because if it's close it's 100% closed
-      self.set_current_state(State::Closed).await?;
+      Some(TargetState::Closed)
+    }
+    else {
+      None
+    };
+
+    if let Some(target_state) = target_state {
+      debug!("{} state manually changed to: {:?}", &self, &detected_state);
+
+      self.target_state = target_state;
+      let travel_state = self.state_detector.manual_travel_state(target_state);
+      self.set_current_state(travel_state).await?;
+      if travel_state.is_travelling() {
+        self.monitor_travel().await?;
+      }
     }
 
     Ok(())

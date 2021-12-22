@@ -7,7 +7,10 @@ use serde_with::{serde_as, DurationSeconds};
 
 use super::{DetectedState, StateDetector, Travel};
 use crate::{
-  door::{state::TargetState, Identifier},
+  door::{
+    state::{State, TargetState},
+    Identifier,
+  },
   error::GarageResult,
   mqtt_client::{
     receiver::{MqttReceiver, PublishReceiver},
@@ -112,6 +115,14 @@ impl StateDetector for AssumedStateDetector {
         log::info!("{:?} overriding state to {:?}", &self.identifier, override_state);
         self.set_assumed_state(override_state);
       }
+    }
+  }
+
+  fn manual_travel_state(&self, target_state: TargetState) -> State {
+    // manual changes only happen on override, we don't want
+    match target_state {
+      TargetState::Open => State::Open,
+      TargetState::Closed => State::Closed,
     }
   }
 }
