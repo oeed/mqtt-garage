@@ -52,8 +52,8 @@ impl Debug for MqttClient {
 }
 
 impl MqttClient {
-  pub fn with_config(config: MqttClientConfig) -> (PublishSender, Self) {
-    let mut mqttoptions = MqttOptions::new("mqtt-garage", config.broker_domain, config.broker_port);
+  pub fn with_config(id: &'static str, config: MqttClientConfig) -> (PublishSender, Self) {
+    let mut mqttoptions = MqttOptions::new(id, config.broker_domain, config.broker_port);
     mqttoptions.set_last_will(LastWill::new(
       &config.availability_topic,
       config.offline_availability,

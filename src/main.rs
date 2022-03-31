@@ -37,7 +37,7 @@ async fn run() -> GarageError {
 
   let remote_mutex = Arc::new(RemoteMutex::new());
 
-  let (send_channel, mut client) = MqttClient::with_config(config.mqtt_client);
+  let (send_channel, mut client) = MqttClient::with_config("mqtt-garage", config.mqtt_client);
 
   for (identifier, door_config) in config.doors {
     match door_config.state_detector {
