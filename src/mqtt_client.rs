@@ -1,6 +1,7 @@
 use std::{
   collections::HashMap,
   fmt::{self, Debug},
+  time::Duration,
 };
 
 use rumqttc::{AsyncClient, LastWill, MqttOptions, QoS};
@@ -60,7 +61,7 @@ impl MqttClient {
       QoS::AtLeastOnce,
       true,
     ));
-    mqttoptions.set_keep_alive(5);
+    mqttoptions.set_keep_alive(Duration::from_secs(30));
 
     let (client, event_loop) = AsyncClient::new(mqttoptions, 10);
 
