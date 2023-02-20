@@ -147,6 +147,14 @@ const MAX_STUCK_TRAVELS: usize = 5;
 impl<D: StateDetector + Send> Door<D> {
   /// Tell the door to transition to the given target state
   pub async fn to_target_state(&mut self, target_state: TargetState) -> GarageResult<()> {
+
+    // do not attempt to go to the target state if it's between 00:00 and 07:00
+    let now = Utc::now().with_timezone(&chrono_tz::Pacific::Auckland);
+    if now.hour() < 7 {
+      debug!("{} is NOT moving to state: {:?} as it is nighttime", &self, &target_state);
+      return Ok(())
+    }
+
     if self.current_state.is_travelling() {
       panic!("attempted to set target state while door is travelling");
     }
