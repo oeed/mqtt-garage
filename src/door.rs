@@ -1,5 +1,5 @@
 use std::{fmt, str::FromStr, sync::Arc, time::Duration};
-
+use chrono::{TimeZone, Utc, Timelike};
 pub use config::DoorConfig;
 pub use identifier::Identifier;
 use log::{debug, info};
@@ -75,8 +75,12 @@ impl<D: StateDetector + Send> Door<D> {
 
     door.set_current_state(initial_state).await?;
 
-    if let Some(target_state) = initial_target_state {
-      door.to_target_state(target_state).await?;
+    // do not attempt to go to the target state if it's between 00:00 and 07:00
+    let now = Utc::now().with_timezone(&chrono_tz::Pacific::Auckland);
+    if now.hour() >= 7 {
+      if let Some(target_state) = initial_target_state {
+        door.to_target_state(target_state).await?;
+      }
     }
 
     Ok(door)
