@@ -1,149 +1,70 @@
-use std::{fmt, str::FromStr, sync::Arc, time::Duration};
+use std::sync::Arc;
 
-pub use config::DoorConfig;
-pub use identifier::Identifier;
-use log::{debug, info};
-pub use remote::mutex::RemoteMutex;
-use tokio::{sync::Mutex, time::sleep};
+use tokio::sync::mpsc;
 
 use self::{
-  remote::{DoorRemote, RemoteConfig},
-  state::{State, Stuck, TargetState},
-  state_detector::StateDetector,
+  config::DoorConfig,
+  controller::{config::DoorControllerConfig, remote::mutex::RemoteMutex, DoorController},
+  detector::DoorDetector,
+  identifier::Identifier,
 };
 use crate::{
   error::GarageResult,
-  mqtt_client::{receiver::MqttReceiver, sender::PublishSender},
+  mqtt_client::{receiver::MqttReceiver, MqttPublish},
 };
 
-mod command;
 pub mod config;
+pub mod controller;
+pub mod detector;
 pub mod identifier;
-mod remote;
 pub mod state;
-pub mod state_detector;
 
-#[derive(Debug)]
-pub struct Door<D: StateDetector + Send> {
-  identifier: Identifier,
-  remote: DoorRemote,
-  state_detector: D,
-  current_state: State,
-  target_state: TargetState,
-  send_channel: PublishSender,
-  command_topic: String,
-  state_topic: String,
-  stuck_topic: Option<String>,
-  stuck: Stuck,
+pub struct Door<D: DoorDetector> {
+  pub identifier: Identifier,
+  detector: D,
+  // we cannot initialise the controller until after the MQTT receiver starts running
+  controller_mqtt_tx: mpsc::UnboundedSender<MqttPublish>,
+  controller_mqtt_rx: mpsc::UnboundedReceiver<MqttPublish>,
+  controller_config: DoorControllerConfig,
+  remote_mutex: Arc<RemoteMutex>,
 }
 
-impl<D: StateDetector + Send> fmt::Display for Door<D> {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "Door ({})", self.identifier.0)
-  }
-}
-
-impl<D: StateDetector + Send> Door<D> {
-  pub async fn with_config(
+impl<D: DoorDetector> Door<D> {
+  pub async fn new(
     identifier: Identifier,
-    command_topic: String,
-    state_topic: String,
-    stuck_topic: Option<String>,
-    initial_target_state: Option<TargetState>,
-    remote: RemoteConfig,
-    state_detector: D::Config,
-    send_channel: PublishSender,
+    door_config: DoorConfig<D>,
+    controller_mqtt_tx: mpsc::UnboundedSender<MqttPublish>,
     remote_mutex: Arc<RemoteMutex>,
-  ) -> GarageResult<Door<D>> {
-    let remote = DoorRemote::with_config(remote, remote_mutex)?;
-    let mut state_detector = D::with_config(identifier.clone(), state_detector)?;
-    let initial_state: State = state_detector.detect_state().into();
+    mqtt_receiver: &mut MqttReceiver,
+  ) -> GarageResult<Self> {
+    let detector = D::new(identifier.clone(), door_config.detector, mqtt_receiver).await?;
 
-    let mut door = Door {
+    let controller_mqtt_rx = mqtt_receiver
+      .subscribe(door_config.controller.command_topic.clone(), rumqttc::QoS::AtLeastOnce)
+      .await?;
+
+    Ok(Door {
       identifier,
-      remote,
-      state_detector,
-      // we initially assume the door is going to where it is meant to be going
-      target_state: initial_state.end_state(),
-      current_state: initial_state,
-      command_topic,
-      state_topic,
-      stuck_topic,
-      send_channel,
-      stuck: Stuck::Ok,
-    };
-
-    door.set_current_state(initial_state).await?;
-
-    // if let Some(target_state) = initial_target_state {
-    //   door.to_target_state(target_state).await?;
-    // }
-
-    Ok(door)
+      detector,
+      controller_mqtt_tx,
+      controller_mqtt_rx,
+      controller_config: door_config.controller,
+      remote_mutex,
+    })
   }
-}
 
-impl<D: StateDetector + Send + 'static> Door<D> {
-  pub async fn listen(mut self, receiver: &mut MqttReceiver) -> GarageResult<()> {
-    info!("{} initialised", &self);
-    let mut door_receive_channel = self.subscribe(receiver).await?;
-    let state_detector_receive_channel = self.state_detector.subscribe(receiver).await?;
+  pub async fn listen(self) -> GarageResult<()> {
+    let (initial_state, detector_rx) = self.detector.listen().await?;
 
-    let should_check = self.state_detector.should_check_periodically();
-    let command_topic = self.command_topic.clone();
-    let mutex = Arc::new(Mutex::new(self));
-
-    if should_check {
-      let mutex = Arc::clone(&mutex);
-      tokio::spawn(async move {
-        // concurrently check if the door's state has changed
-        loop {
-          sleep(Duration::from_secs(2)).await;
-          mutex.lock().await.check_state().await.unwrap();
-        }
-      });
-    }
-
-    if let Some(mut state_detector_receive_channel) = state_detector_receive_channel {
-      let mutex = Arc::clone(&mutex);
-      tokio::spawn(async move {
-        loop {
-          if let Some(publish) = state_detector_receive_channel.recv().await {
-            println!("got publish, waiting for mutex");
-            let mut door = mutex.lock().await;
-            println!("got mutex");
-            door.state_detector.receive_message(publish);
-          }
-          else {
-            // channel ended
-            return;
-          }
-        }
-      });
-    }
-
-    tokio::spawn(async move {
-      loop {
-        if let Some(publish) = door_receive_channel.recv().await {
-          if &command_topic == &publish.topic {
-            if let Ok(target_state) = TargetState::from_str(&publish.payload) {
-              let mut door = mutex.lock().await;
-              debug!("{} got told to moved to state: {:?}", &door, &target_state);
-              door.to_target_state(target_state).await.unwrap()
-            }
-          }
-        }
-        else {
-          // channel ended
-          return;
-        }
-      }
-    });
-
-    // TODO: run this somewhere
-    // if let Some(target_state) = initial_target_state {
-    //   door.to_target_state(target_state).await?;
-    // }
+    let controller = DoorController::new(
+      self.identifier,
+      self.controller_config,
+      self.controller_mqtt_tx,
+      self.controller_mqtt_rx,
+      self.remote_mutex,
+      initial_state.into(),
+    )?;
+    controller.listen(detector_rx).await?;
 
     Ok(())
   }

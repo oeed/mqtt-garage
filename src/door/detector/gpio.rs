@@ -5,13 +5,13 @@ use rppal::gpio::{Gpio, InputPin};
 use serde::Deserialize;
 use serde_with::{serde_as, DurationSeconds};
 
-use super::{DetectedState, StateDetector, Travel};
+use super::{DetectedState, DoorDetector, Travel};
 #[cfg(not(feature = "arm"))]
 use crate::mock_gpio::{Gpio, InputPin};
 use crate::{
   config::gpio::GpioPin,
   door::{
-    state::{State, TargetState},
+    state_controller::{State, TargetState},
     Identifier,
   },
   error::GarageResult,
@@ -19,7 +19,7 @@ use crate::{
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
-pub struct GpioStateDetectorConfig {
+pub struct GpioDoorDetectorConfig {
   /// The pin of the door detector sensor (if available)
   pub pin: GpioPin,
 
@@ -32,13 +32,13 @@ pub struct GpioStateDetectorConfig {
 
 
 #[derive(Debug)]
-pub struct GpioStateDetector {
+pub struct GpioDoorDetector {
   pin: InputPin,
   travel_time: Duration,
   current_travel: Option<Travel>,
 }
 
-impl GpioStateDetector {
+impl GpioDoorDetector {
   /// Take a single reading of the pin
   fn pin_state(&self) -> DetectedState {
     if self.pin.is_high() {
@@ -82,14 +82,14 @@ impl GpioStateDetector {
   }
 }
 
-impl StateDetector for GpioStateDetector {
-  type Config = GpioStateDetectorConfig;
+impl DoorDetector for GpioDoorDetector {
+  type Config = GpioDoorDetectorConfig;
 
-  fn with_config(_: Identifier, config: Self::Config) -> GarageResult<Self> {
+  fn new(_: Identifier, config: Self::Config) -> GarageResult<Self> {
     let gpio = Gpio::new()?;
     let pin = gpio.get(config.pin.bcm_number())?.into_input_pullup();
 
-    Ok(GpioStateDetector {
+    Ok(GpioDoorDetector {
       pin,
       travel_time: config.travel_time,
       current_travel: None,
@@ -98,12 +98,21 @@ impl StateDetector for GpioStateDetector {
 
   async fn travel(&mut self, target_state: TargetState) -> DetectedState {
     if self.current_travel.is_some() {
-      panic!("GpioStateDetector attempted to travel while it was already travelling");
+      panic!("GpioDoorDetector attempted to travel while it was already travelling");
     }
     self.current_travel = Some(Travel::new(target_state));
     tokio::time::sleep(self.travel_time).await;
     self.detect_state()
   }
+
+
+  // tokio::spawn(async move {
+  //   // concurrently check if the door's state has changed
+  //   loop {
+  //     sleep(Duration::from_secs(2)).await;
+  //     mutex.lock().await.check_state().await.unwrap();
+  //   }
+  // });
 
   fn detect_state(&mut self) -> DetectedState {
     let detected_state: DetectedState = self.stable_state();

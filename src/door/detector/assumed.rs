@@ -4,10 +4,10 @@ use log::warn;
 use serde::Deserialize;
 use serde_with::{serde_as, DurationSeconds};
 
-use super::{DetectedState, StateDetector, Travel};
+use super::{DetectedState, DoorDetector, Travel};
 use crate::{
   door::{
-    state::{State, TargetState},
+    state_controller::{State, TargetState},
     Identifier,
   },
   error::GarageResult,
@@ -19,7 +19,7 @@ use crate::{
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
-pub struct AssumedStateDetectorConfig {
+pub struct AssumedDoorDetectorConfig {
   #[serde_as(as = "DurationSeconds<u64>")]
   /// How long the door is assumed to take to go to/from open/close.
   pub travel_time: Duration,
@@ -29,7 +29,7 @@ pub struct AssumedStateDetectorConfig {
 
 
 #[derive(Debug)]
-pub struct AssumedStateDetector {
+pub struct AssumedDoorDetector {
   identifier: Identifier, // TODO: can we borrow this?
   travel_time: Duration,
   override_topic: String,
@@ -37,7 +37,7 @@ pub struct AssumedStateDetector {
   assumed_state: TargetState,
 }
 
-impl AssumedStateDetector {
+impl AssumedDoorDetector {
   fn set_assumed_state(&mut self, assumed_state: TargetState) {
     self.assumed_state = assumed_state;
     self.current_travel = None;
@@ -47,16 +47,16 @@ impl AssumedStateDetector {
   }
 }
 
-impl StateDetector for AssumedStateDetector {
-  type Config = AssumedStateDetectorConfig;
+impl DoorDetector for AssumedDoorDetector {
+  type Config = AssumedDoorDetectorConfig;
 
-  fn with_config(identifier: Identifier, config: Self::Config) -> GarageResult<Self> {
+  fn new(identifier: Identifier, config: Self::Config) -> GarageResult<Self> {
     let assumed_state = fs::read_to_string(format!("{}.state", &identifier.0))
       .ok()
       .and_then(|value| TargetState::from_str(&value).ok())
       .unwrap_or(TargetState::Closed);
 
-    Ok(AssumedStateDetector {
+    Ok(AssumedDoorDetector {
       identifier,
       travel_time: config.travel_time,
       override_topic: config.override_topic,
@@ -67,7 +67,7 @@ impl StateDetector for AssumedStateDetector {
 
   async fn travel(&mut self, target_state: TargetState) -> DetectedState {
     if self.current_travel.is_some() {
-      panic!("AssumedStateDetector attempted to travel while it was already travelling");
+      panic!("AssumedDoorDetector attempted to travel while it was already travelling");
     }
     self.current_travel = Some(Travel::new(target_state));
     tokio::time::sleep(self.travel_time).await;

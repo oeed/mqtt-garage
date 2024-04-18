@@ -21,7 +21,7 @@ pub struct DoorRemote {
 }
 
 impl DoorRemote {
-  pub fn with_config(config: RemoteConfig, mutex: Arc<RemoteMutex>) -> GarageResult<Self> {
+  pub fn new(config: RemoteConfig, mutex: Arc<RemoteMutex>) -> GarageResult<Self> {
     let gpio = Gpio::new()?;
     let pin = gpio.get(config.pin.bcm_number())?.into_output();
 

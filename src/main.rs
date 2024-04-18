@@ -3,19 +3,14 @@
 use std::{fs, sync::Arc, time::Duration};
 
 use mqtt_garage::{
+  self,
   config::Config,
-  door::{
-    state_detector::{
-      assumed::AssumedStateDetector, gpio::GpioStateDetector, zigbee2mqtt::Zigbee2MqttStateDetector, StateDetector,
-      StateDetectorConfig,
-    },
-    Door, RemoteMutex,
-  },
+  door::{controller::remote::mutex::RemoteMutex, Door},
   error::GarageError,
   mqtt_client::MqttClient,
 };
 use simple_logger::SimpleLogger;
-use tokio::{self, time::sleep};
+use tokio::{self, select, time::sleep};
 
 #[tokio::main]
 async fn main() {
@@ -34,79 +29,26 @@ async fn main() {
 
 /// Run the MQTT receiver and sender and react
 /// Runs forever unless an error occurs
-async fn run() -> GarageError {
+async fn run() -> Result<(), GarageError> {
   let config = fs::read_to_string("garage-config.toml").expect("unable to read garage-config.toml");
   let config: Config = toml::from_str(&config).expect("unable to parse garage-config.toml");
 
   let remote_mutex = Arc::new(RemoteMutex::new());
 
-  let (send_channel, mut client) = MqttClient::with_config("mqtt-garage", config.mqtt_client);
+  let (send_channel, mut client) = MqttClient::new("mqtt-garage", config.mqtt_client);
 
+  let mut doors = Vec::with_capacity(config.doors.len());
   for (identifier, door_config) in config.doors {
-    match door_config.state_detector {
-      StateDetectorConfig::Assumed(state_detector) => {
-        // TODO: some elegant way to do this without copy paste
-        let door = Door::<AssumedStateDetector>::with_config(
-          identifier.into(),
-          door_config.command_topic,
-          door_config.state_topic,
-          door_config.stuck_topic,
-          door_config.initial_target_state,
-          door_config.remote,
-          state_detector,
-          send_channel.clone(),
-          Arc::clone(&remote_mutex),
-        )
-        .await
-        .expect("failed to initialised door");
-
-        if let Err(err) = door.listen(&mut client.receiver).await {
-          return err;
-        }
-      }
-
-      StateDetectorConfig::Gpio(state_detector) => {
-        // TODO: some elegant way to do this without copy paste
-        let door = Door::<GpioStateDetector>::with_config(
-          identifier.into(),
-          door_config.command_topic,
-          door_config.state_topic,
-          door_config.stuck_topic,
-          door_config.initial_target_state,
-          door_config.remote,
-          state_detector,
-          send_channel.clone(),
-          Arc::clone(&remote_mutex),
-        )
-        .await
-        .expect("failed to initialised door");
-
-        if let Err(err) = door.listen(&mut client.receiver).await {
-          return err;
-        }
-      }
-
-      StateDetectorConfig::Zigbee2Mqtt(state_detector) => {
-        // TODO: some elegant way to do this without copy paste
-        let door = Door::<Zigbee2MqttStateDetector>::with_config(
-          identifier.into(),
-          door_config.command_topic,
-          door_config.state_topic,
-          door_config.stuck_topic,
-          door_config.initial_target_state,
-          door_config.remote,
-          state_detector,
-          send_channel.clone(),
-          Arc::clone(&remote_mutex),
-        )
-        .await
-        .expect("failed to initialised door");
-
-        if let Err(err) = door.listen(&mut client.receiver).await {
-          return err;
-        }
-      }
-    };
+    doors.push(
+      Door::new(
+        identifier.into(),
+        door_config,
+        send_channel.clone(),
+        remote_mutex.clone(),
+        &mut client.receiver,
+      )
+      .await?,
+    );
   }
 
   client.announce().await.expect("failed to announce client");
@@ -117,6 +59,15 @@ async fn run() -> GarageError {
   let mut sender = client.sender;
   let send = tokio::spawn(async move { sender.send_messages().await.unwrap() });
 
+  // once the receiver and sender are running, we can start listening
+  for door in doors {
+    let identifier = door.identifier.clone();
+    select! {
+      _ = tokio::time::sleep(Duration::from_secs(10)) => return Err(GarageError::DoorInitialisationTimeout(identifier)),
+      _ = door.listen() => {}
+    };
+  }
+
   // the two tasks will only end if an error occurs (most likely MQTT broker disconnection)
-  tokio::try_join!(receive, send).unwrap_err().into()
+  Err(tokio::try_join!(receive, send).unwrap_err().into())
 }
