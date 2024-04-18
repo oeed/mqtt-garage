@@ -5,7 +5,10 @@ use std::{fs, sync::Arc, time::Duration};
 use mqtt_garage::{
   config::Config,
   door::{
-    state_detector::{assumed::AssumedStateDetector, gpio::GpioStateDetector, StateDetectorConfig},
+    state_detector::{
+      assumed::AssumedStateDetector, gpio::GpioStateDetector, zigbee2mqtt::Zigbee2MqttStateDetector, StateDetector,
+      StateDetectorConfig,
+    },
     Door, RemoteMutex,
   },
   error::GarageError,
@@ -62,9 +65,30 @@ async fn run() -> GarageError {
         }
       }
 
-      StateDetectorConfig::Sensor(state_detector) => {
+      StateDetectorConfig::Gpio(state_detector) => {
         // TODO: some elegant way to do this without copy paste
         let door = Door::<GpioStateDetector>::with_config(
+          identifier.into(),
+          door_config.command_topic,
+          door_config.state_topic,
+          door_config.stuck_topic,
+          door_config.initial_target_state,
+          door_config.remote,
+          state_detector,
+          send_channel.clone(),
+          Arc::clone(&remote_mutex),
+        )
+        .await
+        .expect("failed to initialised door");
+
+        if let Err(err) = door.listen(&mut client.receiver).await {
+          return err;
+        }
+      }
+
+      StateDetectorConfig::Zigbee2Mqtt(state_detector) => {
+        // TODO: some elegant way to do this without copy paste
+        let door = Door::<Zigbee2MqttStateDetector>::with_config(
           identifier.into(),
           door_config.command_topic,
           door_config.state_topic,

@@ -1,6 +1,5 @@
 use std::{thread::sleep, time::Duration};
 
-use async_trait::async_trait;
 #[cfg(feature = "arm")]
 use rppal::gpio::{Gpio, InputPin};
 use serde::Deserialize;
@@ -83,7 +82,6 @@ impl GpioStateDetector {
   }
 }
 
-#[async_trait]
 impl StateDetector for GpioStateDetector {
   type Config = GpioStateDetectorConfig;
 
@@ -100,7 +98,7 @@ impl StateDetector for GpioStateDetector {
 
   async fn travel(&mut self, target_state: TargetState) -> DetectedState {
     if self.current_travel.is_some() {
-      panic!("SensorStateDetector attempted to travel while it was already travelling");
+      panic!("GpioStateDetector attempted to travel while it was already travelling");
     }
     self.current_travel = Some(Travel::new(target_state));
     tokio::time::sleep(self.travel_time).await;
@@ -120,7 +118,7 @@ impl StateDetector for GpioStateDetector {
     detected_state
   }
 
-  fn should_check(&self) -> bool {
+  fn should_check_periodically(&self) -> bool {
     true
   }
 

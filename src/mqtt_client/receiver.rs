@@ -32,6 +32,7 @@ impl MqttReceiver {
     loop {
       let notification = self.event_loop.poll().await?;
       if let Event::Incoming(Packet::Publish(message)) = notification {
+        println!("topic: {}", &message.topic);
         if let Some(channel) = self.receive_channels.get(&message.topic) {
           if let Ok(payload) = String::from_utf8(message.payload.to_vec()) {
             channel

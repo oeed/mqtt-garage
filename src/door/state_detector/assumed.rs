@@ -1,6 +1,5 @@
 use std::{fs, str::FromStr, time::Duration};
 
-use async_trait::async_trait;
 use log::warn;
 use serde::Deserialize;
 use serde_with::{serde_as, DurationSeconds};
@@ -48,7 +47,6 @@ impl AssumedStateDetector {
   }
 }
 
-#[async_trait]
 impl StateDetector for AssumedStateDetector {
   type Config = AssumedStateDetectorConfig;
 
@@ -97,7 +95,7 @@ impl StateDetector for AssumedStateDetector {
     }
   }
 
-  fn should_check(&self) -> bool {
+  fn should_check_periodically(&self) -> bool {
     true
   }
 

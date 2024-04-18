@@ -1,12 +1,14 @@
 use std::{
   fmt::Debug,
+  future::Future,
   time::{Duration, SystemTime},
 };
 
-use async_trait::async_trait;
 use serde::Deserialize;
 
-use self::{assumed::AssumedStateDetectorConfig, gpio::GpioStateDetectorConfig};
+use self::{
+  assumed::AssumedStateDetectorConfig, gpio::GpioStateDetectorConfig, zigbee2mqtt::Zigbee2MqttStateDetectorConfig,
+};
 use super::{
   state::{State, TargetState},
   Identifier,
@@ -21,8 +23,8 @@ use crate::{
 
 pub mod assumed;
 pub mod gpio;
+pub mod zigbee2mqtt;
 
-#[async_trait]
 pub trait StateDetector: Debug {
   type Config;
 
@@ -37,13 +39,16 @@ pub trait StateDetector: Debug {
   /// Used to track how long the door has been moving.
   ///
   /// Future resolves when the door *should* have finished travelling in the state it was detected in
-  async fn travel(&mut self, target_state: TargetState) -> DetectedState;
+  fn travel(&mut self, target_state: TargetState) -> impl Future<Output = DetectedState> + Send;
 
   /// whether the state detector should be periodically checked for updates
-  fn should_check(&self) -> bool;
+  fn should_check_periodically(&self) -> bool;
 
-  async fn subscribe(&mut self, _mqtt_receiver: &mut MqttReceiver) -> GarageResult<Option<PublishReceiver>> {
-    Ok(None)
+  fn subscribe(
+    &mut self,
+    _mqtt_receiver: &mut MqttReceiver,
+  ) -> impl Future<Output = GarageResult<Option<PublishReceiver>>> + Send {
+    async { Ok(None) }
   }
 
   fn receive_message(&mut self, _publish: MqttPublish) {}
@@ -55,8 +60,9 @@ pub trait StateDetector: Debug {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum StateDetectorConfig {
-  Sensor(GpioStateDetectorConfig),
+  Gpio(GpioStateDetectorConfig),
   Assumed(AssumedStateDetectorConfig),
+  Zigbee2Mqtt(Zigbee2MqttStateDetectorConfig),
 }
 
 /// Detectors can tell if a door is open or closed, but not where long it is.

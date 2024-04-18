@@ -75,9 +75,9 @@ impl<D: StateDetector + Send> Door<D> {
 
     door.set_current_state(initial_state).await?;
 
-    if let Some(target_state) = initial_target_state {
-      door.to_target_state(target_state).await?;
-    }
+    // if let Some(target_state) = initial_target_state {
+    //   door.to_target_state(target_state).await?;
+    // }
 
     Ok(door)
   }
@@ -89,7 +89,7 @@ impl<D: StateDetector + Send + 'static> Door<D> {
     let mut door_receive_channel = self.subscribe(receiver).await?;
     let state_detector_receive_channel = self.state_detector.subscribe(receiver).await?;
 
-    let should_check = self.state_detector.should_check();
+    let should_check = self.state_detector.should_check_periodically();
     let command_topic = self.command_topic.clone();
     let mutex = Arc::new(Mutex::new(self));
 
@@ -109,7 +109,9 @@ impl<D: StateDetector + Send + 'static> Door<D> {
       tokio::spawn(async move {
         loop {
           if let Some(publish) = state_detector_receive_channel.recv().await {
+            println!("got publish, waiting for mutex");
             let mut door = mutex.lock().await;
+            println!("got mutex");
             door.state_detector.receive_message(publish);
           }
           else {
@@ -137,6 +139,11 @@ impl<D: StateDetector + Send + 'static> Door<D> {
         }
       }
     });
+
+    // TODO: run this somewhere
+    // if let Some(target_state) = initial_target_state {
+    //   door.to_target_state(target_state).await?;
+    // }
 
     Ok(())
   }

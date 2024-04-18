@@ -1,5 +1,6 @@
 {
-  "folders": [{
+  "folders": [
+    {
       "path": "."
     }
   ],
@@ -7,30 +8,26 @@
     "editor.detectIndentation": false,
     "editor.tabSize": 2,
     "editor.formatOnSave": true,
-    "editor.defaultFormatter": "matklad.rust-analyzer",
-    "rust-analyzer.rustfmt.extraArgs": [
-      "+nightly"
-    ],
-    "rust-analyzer.inlayHints.enable": false,
-    // "rust-analyzer.cargo.target": "armv7-unknown-linux-gnueabihf"
-    // "rust-analyzer.cargo.features": ["arm"]
-
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "rust-analyzer.rustfmt.extraArgs": ["+nightly"]
   },
   "launch": {
-    "configurations": [{
-      "type": "lldb",
-      "request": "launch",
-      "name": "MQTT Garage",
-      "preLaunchTask": "build",
-      "program": "${workspaceRoot:mqtt-garage}/target/debug/mqtt-garage",
-      "cwd": "${workspaceRoot:mqtt-garage}",
-      "sourceLanguages": ["rust"],
-      "terminal": "integrated",
-      "console": "integratedTerminal",
-      "env": {
-        "RUST_LOG": "info"
+    "configurations": [
+      {
+        "type": "lldb",
+        "request": "launch",
+        "name": "MQTT Garage",
+        "preLaunchTask": "build",
+        "program": "${workspaceRoot:mqtt-garage}/target/debug/mqtt-garage",
+        "cwd": "${workspaceRoot:mqtt-garage}",
+        "sourceLanguages": ["rust"],
+        "terminal": "integrated",
+        "console": "integratedTerminal",
+        "env": {
+          "RUST_LOG": "info"
+        }
       }
-    }]
+    ]
   },
   "tasks": {
     "version": "2.0.0",
@@ -38,27 +35,23 @@
       {
         "type": "cargo",
         "command": "build",
-        "problemMatcher": [
-          "$rustc"
-        ],
+        "problemMatcher": ["$rustc"],
         "group": {
           "kind": "build",
           "isDefault": true
         },
         "label": "build",
         "options": {
-          "cwd": "${workspaceRoot:mqtt-garage}",
+          "cwd": "${workspaceRoot:mqtt-garage}"
         }
       },
       {
         "type": "cargo",
         "command": "check",
-        "problemMatcher": [
-          "$rustc"
-        ],
+        "problemMatcher": ["$rustc"],
         "label": "check",
         "options": {
-          "cwd": "${workspaceRoot:mqtt-garage}",
+          "cwd": "${workspaceRoot:mqtt-garage}"
         }
       }
     ]
