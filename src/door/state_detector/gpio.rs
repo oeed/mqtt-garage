@@ -20,7 +20,7 @@ use crate::{
 
 #[serde_as]
 #[derive(Debug, Deserialize)]
-pub struct SensorStateDetectorConfig {
+pub struct GpioStateDetectorConfig {
   /// The pin of the door detector sensor (if available)
   pub pin: GpioPin,
 
@@ -33,13 +33,13 @@ pub struct SensorStateDetectorConfig {
 
 
 #[derive(Debug)]
-pub struct SensorStateDetector {
+pub struct GpioStateDetector {
   pin: InputPin,
   travel_time: Duration,
   current_travel: Option<Travel>,
 }
 
-impl SensorStateDetector {
+impl GpioStateDetector {
   /// Take a single reading of the pin
   fn pin_state(&self) -> DetectedState {
     if self.pin.is_high() {
@@ -84,14 +84,14 @@ impl SensorStateDetector {
 }
 
 #[async_trait]
-impl StateDetector for SensorStateDetector {
-  type Config = SensorStateDetectorConfig;
+impl StateDetector for GpioStateDetector {
+  type Config = GpioStateDetectorConfig;
 
   fn with_config(_: Identifier, config: Self::Config) -> GarageResult<Self> {
     let gpio = Gpio::new()?;
     let pin = gpio.get(config.pin.bcm_number())?.into_input_pullup();
 
-    Ok(SensorStateDetector {
+    Ok(GpioStateDetector {
       pin,
       travel_time: config.travel_time,
       current_travel: None,

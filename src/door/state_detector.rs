@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use serde::Deserialize;
 
-use self::{assumed::AssumedStateDetectorConfig, sensor::SensorStateDetectorConfig};
+use self::{assumed::AssumedStateDetectorConfig, gpio::GpioStateDetectorConfig};
 use super::{
   state::{State, TargetState},
   Identifier,
@@ -20,7 +20,7 @@ use crate::{
 };
 
 pub mod assumed;
-pub mod sensor;
+pub mod gpio;
 
 #[async_trait]
 pub trait StateDetector: Debug {
@@ -55,7 +55,7 @@ pub trait StateDetector: Debug {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum StateDetectorConfig {
-  Sensor(SensorStateDetectorConfig),
+  Sensor(GpioStateDetectorConfig),
   Assumed(AssumedStateDetectorConfig),
 }
 

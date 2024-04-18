@@ -5,7 +5,7 @@ use std::{fs, sync::Arc, time::Duration};
 use mqtt_garage::{
   config::Config,
   door::{
-    state_detector::{assumed::AssumedStateDetector, sensor::SensorStateDetector, StateDetectorConfig},
+    state_detector::{assumed::AssumedStateDetector, gpio::GpioStateDetector, StateDetectorConfig},
     Door, RemoteMutex,
   },
   error::GarageError,
@@ -64,7 +64,7 @@ async fn run() -> GarageError {
 
       StateDetectorConfig::Sensor(state_detector) => {
         // TODO: some elegant way to do this without copy paste
-        let door = Door::<SensorStateDetector>::with_config(
+        let door = Door::<GpioStateDetector>::with_config(
           identifier.into(),
           door_config.command_topic,
           door_config.state_topic,
