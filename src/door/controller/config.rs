@@ -30,4 +30,10 @@ pub struct DoorControllerConfig {
   ///
   /// If it exceeds this it tries again.
   pub travel_duration: Duration,
+
+  #[serde_as(as = "DurationSeconds<u64>")]
+  /// The maximum time the remote's signal can take to start moving the door.
+  ///
+  /// If the door doesn't open after this time it'll try again.
+  pub max_remote_latency_duration: Duration,
 }

@@ -2,15 +2,22 @@
 
 use std::{fs, sync::Arc, time::Duration};
 
-use mqtt_garage::{
-  self,
+use simple_logger::SimpleLogger;
+use tokio::{self, select, time::sleep};
+
+use crate::{
   config::Config,
   door::{controller::remote::mutex::RemoteMutex, Door},
   error::GarageError,
   mqtt_client::MqttClient,
 };
-use simple_logger::SimpleLogger;
-use tokio::{self, select, time::sleep};
+
+pub mod config;
+pub mod door;
+pub mod error;
+#[cfg(not(feature = "arm"))]
+mod mock_gpio;
+pub mod mqtt_client;
 
 #[tokio::main]
 async fn main() {

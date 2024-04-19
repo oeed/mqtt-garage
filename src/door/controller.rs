@@ -12,10 +12,10 @@ use self::{
 };
 use super::{
   identifier::Identifier,
-  state::{DetectedState, State, Stuck, TargetState},
+  state::{DetectedState, State, TargetState},
 };
 use crate::{
-  door::state::Travel,
+  door::state::{AssumedTravel, ConfirmedTravel},
   error::GarageResult,
   mqtt_client::{sender::PublishSender, MqttPublish},
 };
@@ -30,13 +30,13 @@ pub struct DoorController {
   identifier: Identifier,
   remote: DoorRemote,
   current_state: State,
-  target_state: TargetState,
   mqtt_tx: PublishSender,
   command_topic: String,
   state_topic: String,
   stuck_topic: Option<String>,
-  stuck: Stuck,
+  initial_target_state: Option<TargetState>,
   travel_duration: Duration,
+  max_remote_latency_duration: Duration,
   mqtt_rx: UnboundedReceiver<MqttPublish>,
 }
 
@@ -59,14 +59,14 @@ impl DoorController {
 
     let controller = DoorController {
       identifier,
-      target_state: initial_state.end_state(),
       current_state: initial_state,
       command_topic: config.command_topic,
       state_topic: config.state_topic,
       stuck_topic: config.stuck_topic,
       travel_duration: config.travel_duration,
+      initial_target_state: config.initial_target_state,
+      max_remote_latency_duration: config.max_remote_latency_duration,
       mqtt_tx,
-      stuck: Stuck::Ok,
       remote,
       mqtt_rx,
     };
@@ -76,88 +76,88 @@ impl DoorController {
 
   pub async fn listen(mut self, mut detector_rx: mpsc::UnboundedReceiver<DetectedState>) -> GarageResult<()> {
     log::info!("{} listening with initial state: {:?}", &self, self.current_state);
+    self.publish_current_state();
+
+    if let Some(target_state) = self.initial_target_state {
+      self.goto_target_state(target_state).await;
+    }
+
     tokio::spawn(async move {
       loop {
         let _: GarageResult<()> = select! {
           Some(detected_state) = detector_rx.recv() => {
             // detected state changed
             log::debug!("{} detected state: {:?}, current state: {:?}", &self, &detected_state, &self.current_state);
-            if detected_state == DetectedState::Stuck {
-              self.set_stuck(Stuck::Stuck);
-            }
-            else {
-              self.set_stuck(Stuck::Ok);
-            }
 
-            match (&self.current_state, detected_state ) {
-              (State::Closed, DetectedState::Open) => {
-                // door was closed but it's now open (i.e. manually opened)
-                log::debug!("{} state manually changed to: {:?}", &self, &detected_state);
-                self.target_state = TargetState::Open;
-                self.set_current_state(State::Opening(Travel::new(self.travel_duration,true)));
+            match (&self.current_state, detected_state) {
+              (State::Closed | State::AttemptingOpen(_), DetectedState::Stuck) => {
+                self.set_current_state(State::StuckClosed);
               }
-              (State::Open, DetectedState::Closed) => {
-                // door was open but it's now closed (i.e. manually closed)
-                log::debug!("{} state manually changed to: {:?}", &self, &detected_state);
-                self.target_state = TargetState::Closed;
+              (State::Open | State::Opening(_) | State::Closing(_), DetectedState::Stuck) => {
+                self.set_current_state(State::StuckOpen);
+              }
+              (State::Closed | State::AttemptingOpen(_)| State::StuckClosed | State::StuckOpen, DetectedState::Open) => {
+                // door was stuck/closed but it's now open
+                log::debug!("{} was opened", &self);
+                self.set_current_state(State::Opening(AssumedTravel::new(self.travel_duration)),);
+              }
+              (State::Open | State::Closing(_) | State::StuckClosed | State::StuckOpen, DetectedState::Closed) => {
+                // door was open/stuck/closing and it's now closed
+                log::debug!("{} was closed", &self);
                 self.set_current_state(State::Closed);
               }
-              (State::Opening(_), DetectedState::Open) => {
-                // TODO: this will result in doors instantly showing as opened, it needs to wait the travel time. toggle on is_manual
-                // door was opening and it's now open
-                log::debug!("{} finished opening", &self);
-                self.set_current_state(State::Open);
-              }
-              (State::Closing(_), DetectedState::Closed) => {
-                // door was opening and it's now open
-                log::debug!("{} finished opening", &self);
-                self.set_current_state(State::Closed);
-              }
-              (_, DetectedState::Stuck) |(State::Opening(_), DetectedState::Closed)|(State::Open, DetectedState::Open) |
-              (State::Closing(_), DetectedState::Open) |
-              (State::Closed, DetectedState::Closed)  => {
-                // no-op; either it's in the wrong state while travelling and will be reattempted, or it's in the right state
-              }
+              _ => () // no-op
             }
 
             Ok(())
           },
 
-          Some(travel) = async {
-            if let Some(travel) = self.current_state.travel_mut() {
-              (&mut travel.expiry).await;
-              Some(travel)
-            }else {
+          Some(_) = async {
+            if let Some(expiry) = self.current_state.expiry_mut() {
+              expiry.await;
+              Some(())
+            } else {
               None
             }
           } => {
-            // the travel expired, i.e. the door didn't move in to place before it should have
-            // travel is still the current state at this point, so we can safely assume it hasn't completed
+            match &mut self.current_state {
+              State::AttemptingOpen(confirmed_travel) | State::Closing(confirmed_travel) => {
+                // the door didn't open/close as it was requested to
+                if confirmed_travel.reattempt(MAX_STUCK_REATTEMPTS).is_ok() {
+                  // the travel expired, i.e. the door didn't move in to place before it should have
+                  // travel is still the current state at this point, so we can safely assume it hasn't completed
 
-            if travel.is_manual {
-              // the manually induced travel probably finished now, so mark it as such
-              log::debug!("{} manual travel assumed complete", &self);
-              self.set_current_state(self.current_state.end_state().into());
-            }
-            else if travel.reattempt(MAX_STUCK_REATTEMPTS).is_ok() {
-              // we're going to try again
-              log::debug!("{} door failed to move, triggering remote again", &self);
-              self.remote.trigger().await;
-            } else {
-              // we've tried too many times
-              self.set_stuck(Stuck::Stuck);
+                  // we're going to try again
+                  log::debug!("{} door failed to move, triggering remote again", &self);
+                  self.remote.trigger().await;
+                } else {
+                  // we've tried too many times
+                  log::debug!("{} door failed to move after maximum attemps, marking as stuck", &self);
+                  match self.current_state {
+                    State::AttemptingOpen(_) => self.set_current_state(State::StuckClosed),
+                    State::Closing(_) => self.set_current_state(State::StuckClosed),
+                    _ => unreachable!(),
+                  }
+                }
+              },
+              State::Opening(_) => {
+                // the assumed travel time has expired, mark it as being in the end state
+                log::debug!("{} open travel assumed complete", &self);
+                self.set_current_state(State::Open);
+              },
+              State::Open | State::StuckOpen | State::Closed | State::StuckClosed => unreachable!("state should not have an expiry"),
             }
 
             Ok(())
           }
 
-          Some(publish) = self.mqtt_rx.recv() => {
+          Some(publish) = self.mqtt_rx.recv(), if !self.current_state.is_travelling() => { // only act on commands while not travelling
             if &self.command_topic == &publish.topic {
               if let Ok(target_state) = TargetState::from_str(&publish.payload) {
                 // commanded to move to `target_state`
                 log::debug!("{} was commanded to moved to state: {:?}, current state: {:?}", &self, &target_state, &self.current_state);
                 // TODO: what if the door is currently moving?
-                self.set_target_state(target_state).await;
+                self.goto_target_state(target_state).await;
               }
             }
 
@@ -168,55 +168,57 @@ impl DoorController {
       }
     });
 
-    // TODO: run this somewhere
-    // if let Some(target_state) = initial_target_state {
-    //   door.to_target_state(target_state).await?;
-    // }
     Ok(())
-  }
-
-  fn set_stuck(&mut self, stuck: Stuck) {
-    if self.stuck != stuck {
-      self.stuck = stuck;
-      if let Some(stuck_topic) = &self.stuck_topic {
-        self
-          .mqtt_tx
-          .send(MqttPublish {
-            topic: stuck_topic.clone(),
-            qos: QoS::AtLeastOnce,
-            retain: false,
-            payload: stuck.to_string(),
-          })
-          .expect("MQTT channel closed");
-      }
-    }
   }
 
   fn set_current_state(&mut self, current_state: State) {
     log::debug!("{} setting new state: {:?}", &self, current_state);
-    let payload = current_state.to_string();
     self.current_state = current_state;
+    self.publish_current_state();
+  }
+
+  fn publish_current_state(&self) {
     self
       .mqtt_tx
       .send(MqttPublish {
         topic: self.state_topic.clone(),
         qos: QoS::AtLeastOnce,
         retain: true,
-        payload,
+        payload: self.current_state.to_string(),
       })
       .expect("MQTT channel closed");
+
+    if let Some(stuck_topic) = &self.stuck_topic {
+      self
+        .mqtt_tx
+        .send(MqttPublish {
+          topic: stuck_topic.clone(),
+          qos: QoS::AtLeastOnce,
+          retain: false,
+          payload: self.current_state.stuck_state().to_string(),
+        })
+        .expect("MQTT channel closed");
+    }
   }
 
-  async fn set_target_state(&mut self, target_state: TargetState) {
-    if self.current_state != target_state {
-      self.target_state = target_state;
+  async fn goto_target_state(&mut self, target_state: TargetState) {
+    if self.current_state.is_travelling() {
+      panic!("Door is currently travelling, cannot move to another target state");
+    }
+    else if self.current_state != target_state {
       // we're not in our target state, transition to travelling and trigger the door
-      self.set_current_state(
-        self
-          .target_state
-          .from_travel_state(Travel::new(self.travel_duration, false)),
-      );
-
+      match target_state {
+        TargetState::Closed => {
+          // because we can't be for sure if the door actually moves from the open state, we assume it's closing
+          self.set_current_state(State::Closing(ConfirmedTravel::new(self.travel_duration)));
+        }
+        TargetState::Open => {
+          // we can detect if the door starts to open, so ensure it does
+          self.set_current_state(State::AttemptingOpen(ConfirmedTravel::new(
+            self.max_remote_latency_duration,
+          )));
+        }
+      }
       // trigger the door
       log::debug!("{} is now targeting state {}, triggering remote", &self, target_state);
       self.remote.trigger().await;
