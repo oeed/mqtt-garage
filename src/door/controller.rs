@@ -82,6 +82,8 @@ impl DoorController {
       self.goto_target_state(target_state).await;
     }
 
+    let mut next_target_state: Option<TargetState> = None;
+
     tokio::spawn(async move {
       loop {
         let _: GarageResult<()> = select! {
@@ -101,7 +103,7 @@ impl DoorController {
                 log::debug!("{} was opened", &self);
                 self.set_current_state(State::Opening(AssumedTravel::new(self.travel_duration)),);
               }
-              (State::Open | State::Closing(_) | State::StuckClosed | State::StuckOpen, DetectedState::Closed) => {
+              (State::Open | State::Closing(_) | State::StuckClosed | State::StuckOpen | State::Opening(_), DetectedState::Closed) => {
                 // door was open/stuck/closing and it's now closed
                 log::debug!("{} was closed", &self);
                 self.set_current_state(State::Closed);
@@ -151,13 +153,18 @@ impl DoorController {
             Ok(())
           }
 
-          Some(publish) = self.mqtt_rx.recv(), if !self.current_state.is_travelling() => { // only act on commands while not travelling
+          Some(target_state) = async { next_target_state }, if !self.current_state.is_travelling() => { // only act on commands while not travelling
+            next_target_state = None;
+            // commanded to move to `target_state`
+            log::debug!("{} was commanded to moved to state: {:?}, current state: {:?}", &self, &target_state, &self.current_state);
+            self.goto_target_state(target_state).await;
+            Ok(())
+          }
+
+          Some(publish) = self.mqtt_rx.recv() => {
             if &self.command_topic == &publish.topic {
               if let Ok(target_state) = TargetState::from_str(&publish.payload) {
-                // commanded to move to `target_state`
-                log::debug!("{} was commanded to moved to state: {:?}, current state: {:?}", &self, &target_state, &self.current_state);
-                // TODO: what if the door is currently moving?
-                self.goto_target_state(target_state).await;
+                next_target_state = Some(target_state);
               }
             }
 
