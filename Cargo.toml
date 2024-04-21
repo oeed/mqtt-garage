@@ -19,4 +19,4 @@ tokio = {version = "1.37", features = ["full"]}
 toml = "0.5.8"
 
 [features]
-arm = ["rppal"]
+arm = ["rppal"] # use: cargo build --target arm-unknown-linux-musleabihf --features=arm --release
