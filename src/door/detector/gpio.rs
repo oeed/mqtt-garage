@@ -105,15 +105,6 @@ impl DoorDetector for GpioDoorDetector {
     self.detect_state()
   }
 
-
-  // tokio::spawn(async move {
-  //   // concurrently check if the door's state has changed
-  //   loop {
-  //     sleep(Duration::from_secs(2)).await;
-  //     mutex.lock().await.check_state().await.unwrap();
-  //   }
-  // });
-
   fn detect_state(&mut self) -> DetectedState {
     let detected_state: DetectedState = self.stable_state();
 

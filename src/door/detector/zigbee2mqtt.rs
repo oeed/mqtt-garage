@@ -4,7 +4,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use super::{DetectedState, DoorDetector};
 use crate::{
   door::identifier::Identifier,
-  error::GarageResult,
+  error::{GarageError, GarageResult},
   mqtt_client::{receiver::MqttReceiver, MqttPublish},
 };
 
@@ -64,7 +64,7 @@ impl DoorDetector for Zigbee2MqttDoorDetector {
 
     // read the initial state (this assumes it'll be retain and thus instantly available)
     let initial_state = loop {
-      let publish = self.mqtt_rx.recv().await.expect("MQTT receiver ended");
+      let publish = self.mqtt_rx.recv().await.ok_or(GarageError::MqttClosed)?;
       if let Some(initial_state) = DetectedState::from_publish(&self.sensor_topic, publish) {
         break initial_state;
       }
@@ -72,12 +72,17 @@ impl DoorDetector for Zigbee2MqttDoorDetector {
 
     tokio::spawn(async move {
       loop {
-        let publish = self.mqtt_rx.recv().await.expect("MQTT receiver ended");
-        if let Some(detected_state) = DetectedState::from_publish(&self.sensor_topic, publish) {
-          if detector_tx.send(detected_state).is_err() {
-            // channel ended
-            return;
+        if let Some(publish) = self.mqtt_rx.recv().await {
+          if let Some(detected_state) = DetectedState::from_publish(&self.sensor_topic, publish) {
+            if detector_tx.send(detected_state).is_err() {
+              // channel ended
+              break;
+            }
           }
+        }
+        else {
+          // channel ended
+          break;
         }
       }
     });

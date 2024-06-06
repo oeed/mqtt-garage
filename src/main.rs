@@ -1,9 +1,9 @@
 #![warn(rust_2018_idioms)]
 
-use std::{fs, sync::Arc, time::Duration};
+use std::{fs, sync::Arc, time::Duration, vec};
 
 use simple_logger::SimpleLogger;
-use tokio::{self, select, time::sleep};
+use tokio::{self, select, task::JoinSet, time::sleep};
 
 use crate::{
   config::Config,
@@ -57,24 +57,46 @@ async fn run() -> Result<(), GarageError> {
       .await?,
     );
   }
-
   client.announce().await.expect("failed to announce client");
 
+  let mut handles = JoinSet::new();
+
   let mut receiver = client.receiver;
-  let receive = tokio::spawn(async move { receiver.receive_messages().await.unwrap() });
+  handles.spawn(async move { receiver.receive_messages().await });
 
   let mut sender = client.sender;
-  let send = tokio::spawn(async move { sender.send_messages().await.unwrap() });
+  handles.spawn(async move { sender.send_messages().await });
+
 
   // once the receiver and sender are running, we can start listening
   for door in doors {
     let identifier = door.identifier.clone();
     select! {
-      _ = tokio::time::sleep(Duration::from_secs(10)) => return Err(GarageError::DoorInitialisationTimeout(identifier)),
-      _ = door.listen() => {}
+      _ = tokio::time::sleep(Duration::from_secs(10)) => {
+            client.client.disconnect().await.ok();
+            return Err(GarageError::DoorInitialisationTimeout(identifier))
+          },
+      controller_detector = door.start_detector() => {
+        match controller_detector {
+          Ok((controller, detector)) => handles.spawn(async move { controller.listen(detector).await }),
+          Err(err) => {
+            // the door failed to initialise the detector
+            client.client.disconnect().await.ok();
+            return Err(err)
+          }
+        }
+      },
     };
   }
 
-  // the two tasks will only end if an error occurs (most likely MQTT broker disconnection)
-  Err(tokio::try_join!(receive, send).unwrap_err().into())
+  // the handles will only end if an error occurs (most likely MQTT broker disconnection)
+  let err = handles
+    .join_next()
+    .await
+    .expect("empty JoinSet")
+    .expect("join error")
+    .unwrap_err()
+    .into();
+  client.client.disconnect().await.ok();
+  Err(err)
 }

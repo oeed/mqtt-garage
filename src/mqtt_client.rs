@@ -44,6 +44,7 @@ pub struct MqttClient {
   online_availability: String,
   pub sender: MqttSender,
   pub receiver: MqttReceiver,
+  pub client: AsyncClient,
 }
 
 impl Debug for MqttClient {
@@ -78,9 +79,10 @@ impl MqttClient {
           receive_channels: HashMap::new(),
         },
         sender: MqttSender {
-          client,
+          client: client.clone(),
           send_channel: send_rx,
         },
+        client,
       },
     )
   }

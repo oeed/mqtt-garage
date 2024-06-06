@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, task::JoinHandle};
 
 use self::{
   config::DoorConfig,
   controller::{config::DoorControllerConfig, remote::mutex::RemoteMutex, DoorController},
   detector::DoorDetector,
   identifier::Identifier,
+  state::DetectedState,
 };
 use crate::{
   error::GarageResult,
@@ -53,19 +54,20 @@ impl<D: DoorDetector> Door<D> {
     })
   }
 
-  pub async fn listen(self) -> GarageResult<()> {
+  pub async fn start_detector(self) -> GarageResult<(DoorController, mpsc::UnboundedReceiver<DetectedState>)> {
     let (initial_state, detector_rx) = self.detector.listen().await?;
 
-    let controller = DoorController::new(
-      self.identifier,
-      self.controller_config,
-      self.controller_mqtt_tx,
-      self.controller_mqtt_rx,
-      self.remote_mutex,
-      initial_state.into(),
-    )?;
-    controller.listen(detector_rx).await?;
-
-    Ok(())
+    Ok((
+      DoorController::new(
+        self.identifier,
+        self.controller_config,
+        self.controller_mqtt_tx,
+        self.controller_mqtt_rx,
+        self.remote_mutex,
+        initial_state.into(),
+      )
+      .await?,
+      detector_rx,
+    ))
   }
 }

@@ -8,14 +8,16 @@ pub type GarageResult<T> = Result<T, GarageError>;
 pub enum GarageError {
   #[error(transparent)]
   #[cfg(feature = "arm")]
-  GPIO(#[from] rppal::gpio::Error),
+  Gpio(#[from] rppal::gpio::Error),
   #[cfg(not(feature = "arm"))]
   #[error(transparent)]
-  GPIO(#[from] crate::mock_gpio::Error),
+  Gpio(#[from] crate::mock_gpio::Error),
   #[error(transparent)]
-  MQTTClient(#[from] rumqttc::ClientError),
+  MqttClient(#[from] rumqttc::ClientError),
   #[error(transparent)]
-  MQTTConnection(#[from] rumqttc::ConnectionError),
+  MqttConnection(#[from] rumqttc::ConnectionError),
+  #[error("the MQTT client has been closed")]
+  MqttClosed,
   #[error(transparent)]
   JoinError(#[from] JoinError),
   #[error("door initialisation timeout for {0:?}")]
