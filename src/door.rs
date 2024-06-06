@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::sync::mpsc;
 
 use self::{
   config::DoorConfig,

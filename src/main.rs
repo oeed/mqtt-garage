@@ -1,6 +1,6 @@
 #![warn(rust_2018_idioms)]
 
-use std::{fs, sync::Arc, time::Duration, vec};
+use std::{fs, sync::Arc, time::Duration};
 
 use simple_logger::SimpleLogger;
 use tokio::{self, select, task::JoinSet, time::sleep};

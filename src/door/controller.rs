@@ -1,4 +1,4 @@
-use std::{fmt, str::FromStr, sync::Arc, thread::JoinHandle, time::Duration};
+use std::{fmt, str::FromStr, sync::Arc, time::Duration};
 
 use rumqttc::QoS;
 use tokio::{

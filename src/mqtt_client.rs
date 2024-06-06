@@ -95,7 +95,7 @@ impl MqttClient {
       .publish(
         &self.availability_topic,
         QoS::AtLeastOnce,
-        false,
+        true,
         &self.online_availability,
       )
       .await
