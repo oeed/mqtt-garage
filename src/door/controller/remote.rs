@@ -16,7 +16,7 @@ pub mod mutex;
 #[derive(Debug)]
 pub struct DoorRemote {
   pin: OutputPin,
-  config: RemoteConfig,
+  pub config: RemoteConfig,
   mutex: Arc<RemoteMutex>,
 }
 

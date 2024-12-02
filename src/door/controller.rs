@@ -225,7 +225,7 @@ impl DoorController {
         TargetState::Open => {
           // we can detect if the door starts to open, so ensure it does
           self.set_current_state(State::AttemptingOpen(ConfirmedTravel::new(
-            self.max_remote_latency_duration,
+            self.max_remote_latency_duration + self.remote.config.pressed_time + self.remote.config.wait_time,
           )))?;
         }
       }
