@@ -9,8 +9,7 @@ members = ["lib/config"]
 
 [dependencies]
 config = {path = "lib/config"}
-log = {version = "0.4", default-features = false, features = ["esp_idf_log"]}
-serde_json = "1"
+log = {version = "0.4", default-features = false}
 thiserror = "1.0"
 
 # ESP-IDF
@@ -20,7 +19,7 @@ esp-idf-sys = {version = "0.34", features = ["binstart"]}
 
 [build-dependencies]
 config = {path = "lib/config", features = ["serde"]}
-toml = "0.8"
+toml = "0.9.4"
 
 [profile.release]
 opt-level = "s"
