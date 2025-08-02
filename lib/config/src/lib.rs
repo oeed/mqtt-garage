@@ -1,65 +1,65 @@
+use std::borrow::Cow;
+
 #[cfg(feature = "serde")]
 use serde::Deserialize;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct Config<'a> {
-  pub ssid: &'a str,
-  pub wifi: WifiConfig<'a>,
-  pub mqtt: MqttConfig<'a>,
-  pub door: DoorConfig<'a>,
+pub struct Config {
+  pub wifi: WifiConfig,
+  pub mqtt: MqttConfig,
+  pub door: DoorConfig,
 }
 
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct WifiConfig<'a> {
-  pub ssid: &'a str,
-  pub password: &'a str,
+pub struct WifiConfig {
+  pub ssid: Cow<'static, str>,
+  pub password: Cow<'static, str>,
 }
 
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct MqttConfig<'a> {
-  pub broker_domain: &'a str,
+pub struct MqttConfig {
+  pub broker_domain: Cow<'static, str>,
   pub broker_port: u16,
-  pub client_id: &'a str,
-  pub availability_topic: &'a str,
-  pub online_availability: &'a str,
-  pub offline_availability: &'a str,
+  pub client_id: Cow<'static, str>,
+  pub availability_topic: Cow<'static, str>,
+  pub online_availability: Cow<'static, str>,
+  pub offline_availability: Cow<'static, str>,
 }
 
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct RemoteConfig<'a> {
-  pub pin: &'a str,
+pub struct RemoteConfig {
+  pub pin: Cow<'static, str>,
   pub pressed_time: f32,
   pub wait_time: f32,
 }
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-#[cfg_attr(feature = "serde", serde(bound(deserialize = "'de: 'a")))]
-pub struct DoorConfig<'a> {
-  pub controller: ControllerConfig<'a>,
-  pub detector: DetectorConfig<'a>,
+pub struct DoorConfig {
+  pub controller: ControllerConfig,
+  pub detector: DetectorConfig,
 }
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct ControllerConfig<'a> {
-  pub command_topic: &'a str,
-  pub initial_target_state: &'a str,
-  pub state_topic: &'a str,
-  pub stuck_topic: &'a str,
+pub struct ControllerConfig {
+  pub command_topic: Cow<'static, str>,
+  pub initial_target_state: Cow<'static, str>,
+  pub state_topic: Cow<'static, str>,
+  pub stuck_topic: Cow<'static, str>,
   pub travel_duration: u64,
-  pub remote: RemoteConfig<'a>,
+  pub remote: RemoteConfig,
 }
 
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(Deserialize))]
-pub struct DetectorConfig<'a> {
-  pub sensor_topic: &'a str,
+pub struct DetectorConfig {
+  pub sensor_topic: Cow<'static, str>,
 }

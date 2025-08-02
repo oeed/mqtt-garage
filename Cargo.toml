@@ -2,7 +2,7 @@
 authors = ["Oliver Cooper <oliver.cooper@me.com>"]
 edition = "2021"
 name = "mqtt-garage"
-version = "0.1.0"
+version = "2.0.0"
 
 [workspace]
 members = ["lib/config"]
@@ -13,13 +13,18 @@ log = {version = "0.4", default-features = false}
 thiserror = "1.0"
 
 # ESP-IDF
-esp-idf-hal = "0.43"
-esp-idf-svc = "0.48"
-esp-idf-sys = {version = "0.34", features = ["binstart"]}
+# esp-idf-hal = "0.45"
+esp-idf-svc = "0.51"
+# esp-idf-sys = {version = "0.36", features = ["binstart"]}
 
 [build-dependencies]
 config = {path = "lib/config", features = ["serde"]}
+embuild = "0.33"
 toml = "0.9.4"
 
 [profile.release]
 opt-level = "s"
+
+[profile.dev]
+debug = true # Symbols are nice and they don't increase the size on Flash
+opt-level = "z"

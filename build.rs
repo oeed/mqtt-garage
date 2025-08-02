@@ -3,6 +3,8 @@ use std::{env, fs, path::PathBuf};
 use config::Config;
 
 fn main() {
+  embuild::espidf::sysenv::output();
+
   const CONFIG_FILE: &str = "garage-config.toml";
 
   println!("cargo:rerun-if-changed={}", CONFIG_FILE);
@@ -10,8 +12,7 @@ fn main() {
   let config_path = PathBuf::from(CONFIG_FILE);
   let config_str = fs::read_to_string(config_path).unwrap_or_else(|e| panic!("Failed to read {}: {}", CONFIG_FILE, e));
 
-  let config: Config<'_> =
-    toml::from_str(&config_str).unwrap_or_else(|e| panic!("Failed to parse {}: {}", CONFIG_FILE, e));
+  let config: Config = toml::from_str(&config_str).unwrap_or_else(|e| panic!("Failed to parse {}: {}", CONFIG_FILE, e));
 
   let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
   let dest_path = out_dir.join("config_generated.rs");
@@ -20,32 +21,32 @@ fn main() {
     r#"
   pub static CONFIG: Config<'static> = Config {{
       wifi: WifiConfig {{
-          ssid: "{wifi_ssid}",
-          password: "{wifi_psk}",
+          ssid: "{wifi_ssid}".into(),
+          password: "{wifi_psk}".into(),
       }},
       mqtt: MqttConfig {{
-          broker_domain: "{mqtt_host}",
+          broker_domain: "{mqtt_host}".into(),
           broker_port: {mqtt_port},
-          client_id: "{mqtt_client_id}",
-          availability_topic: "{mqtt_availability_topic}",
-          online_availability: "{mqtt_online_payload}",
-          offline_availability: "{mqtt_offline_payload}",
+          client_id: "{mqtt_client_id}".into(),
+          availability_topic: "{mqtt_availability_topic}".into(),
+          online_availability: "{mqtt_online_payload}".into(),
+          offline_availability: "{mqtt_offline_payload}".into(),
       }},
       door: DoorConfig {{
           controller: ControllerConfig {{
-              command_topic: "{door_cmd_topic}",
-              initial_target_state: "{door_initial_target_state}",
-              state_topic: "{door_state_topic}",
-              stuck_topic: "{door_stuck_topic}",
+              command_topic: "{door_cmd_topic}".into(),
+              initial_target_state: "{door_initial_target_state}".into(),
+              state_topic: "{door_state_topic}".into(),
+              stuck_topic: "{door_stuck_topic}".into(),
               travel_duration: {door_travel_duration_secs},
               remote: RemoteConfig {{
-                  pin: "{door_remote_pin}",
+                  pin: "{door_remote_pin}".into(),
                   pressed_time: {door_remote_pressed_time_s},
                   wait_time: {door_remote_wait_time_s},
               }},
           }},
           detector: DetectorConfig {{
-              sensor_topic: "{door_detector_sensor_topic}",
+              sensor_topic: "{door_detector_sensor_topic}".into(),
           }},
       }},
   }};

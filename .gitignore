@@ -4,3 +4,4 @@
 garage-config.toml
 *.state
 garage-config.*.toml
+/.embuild
