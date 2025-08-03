@@ -1,28 +1,28 @@
 pub use config::RemoteConfig;
 use embassy_time::Timer;
+use esp_idf_svc::hal::gpio::{self, Gpio16, PinDriver, Pins};
 
 use crate::{config::CONFIG, error::GarageResult};
 
-#[derive(Debug)]
 pub struct DoorRemote {
-  // pin: OutputPin,
+  pin: PinDriver<'static, Gpio16, gpio::Output>,
 }
 
 impl DoorRemote {
-  pub fn new() -> GarageResult<Self> {
-    // let gpio = Gpio::new()?;
-    // let pin = gpio.get(config.pin.bcm_number())?.into_output();
+  pub fn new(pins: Pins) -> GarageResult<Self> {
+    let pin = PinDriver::output(pins.gpio16)?;
 
-    Ok(DoorRemote { /* pin */ })
+    Ok(DoorRemote { pin })
   }
 
   /// Trigger the remote to send the open/close signal
-  pub async fn trigger(&mut self) {
+  pub async fn trigger(&mut self) -> GarageResult<()> {
     log::info!("Triggering remote");
     // NOTE: in future, if multiple doors/remotes are added, use a mutex when sending to prevent signal interference
-    // self.pin.set_high();
+    self.pin.set_high()?;
     Timer::after(CONFIG.door.remote.pressed_duration).await;
-    // self.pin.set_low();
+    self.pin.set_low()?;
     Timer::after(CONFIG.door.remote.wait_duration).await;
+    Ok(())
   }
 }

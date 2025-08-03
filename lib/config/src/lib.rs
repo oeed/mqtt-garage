@@ -28,7 +28,6 @@ pub struct MqttConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct RemoteConfig {
-  pub pin: Cow<'static, str>,
   #[serde(deserialize_with = "deserialize_duration_millis")]
   pub pressed_duration: embassy_time::Duration,
   #[serde(deserialize_with = "deserialize_duration_millis")]
@@ -89,7 +88,6 @@ sensor_topic = "garage/door/sensor"
 max_attempts = 3
 
 [door.remote]
-pin = "1"
 pressed_time = 0.5
 wait_time = 1.0
 "#;
@@ -113,7 +111,6 @@ wait_time = 1.0
     assert_eq!(config.door.sensor_topic, "garage/door/sensor");
     assert_eq!(config.door.max_attempts, 3);
 
-    assert_eq!(config.door.remote.pin, "1");
     assert_eq!(
       config.door.remote.pressed_duration,
       embassy_time::Duration::from_millis(500)

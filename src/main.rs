@@ -5,7 +5,10 @@ use std::pin::pin;
 
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either3, select3};
-use esp_idf_svc::{eventloop::EspSystemEventLoop, log::EspLogger, nvs::EspDefaultNvsPartition, timer::EspTimerService};
+use esp_idf_svc::{
+  eventloop::EspSystemEventLoop, hal::prelude::Peripherals, log::EspLogger, nvs::EspDefaultNvsPartition,
+  timer::EspTimerService,
+};
 
 // use tokio::{self, select, task::JoinSet, time::sleep};
 use crate::{
@@ -31,10 +34,11 @@ async fn main(_spawner: Spawner) {
   let sys_loop = EspSystemEventLoop::take().unwrap();
   let timer_service = EspTimerService::new().unwrap();
   let nvs = EspDefaultNvsPartition::take().unwrap();
+  let peripherals = Peripherals::take().unwrap();
 
   // loop {
   let err = async {
-    let _wifi = Wifi::connect(sys_loop.clone(), timer_service.clone(), nvs.clone()).await?;
+    let _wifi = Wifi::connect(peripherals.modem, sys_loop.clone(), timer_service.clone(), nvs.clone()).await?;
     let mqtt_channels = MqttChannels::new();
     let MqttClient {
       receiver: mut mqtt_receiver,
@@ -45,7 +49,7 @@ async fn main(_spawner: Spawner) {
     let result = select3(
       pin!(async move { mqtt_receiver.receive_messages().await }),
       pin!(async move { mqtt_publisher.send_messages().await }),
-      pin!(async { Ok(Door::new(&mqtt_channels).await?.listen().await) }),
+      pin!(async { Ok(Door::new(peripherals.pins, &mqtt_channels).await?.listen().await?) }),
     )
     .await;
 

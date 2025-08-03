@@ -3,18 +3,27 @@
   "editor": "wokwi",
   "parts": [
     {
-      "type": "board-esp32-s2-devkitm-1",
+      "type": "board-wemos-s2-mini",
       "id": "esp",
       "top": 0.59,
       "left": 0.67,
       "attrs": {
         "flashSize": "16"
       }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay",
+      "top": 59,
+      "left": 150
     }
   ],
   "connections": [
     ["esp:TX", "$serialMonitor:RX", "", []],
-    ["esp:RX", "$serialMonitor:TX", "", []]
+    ["esp:RX", "$serialMonitor:TX", "", []],
+    ["esp:VBUS", "relay:VCC", "red", ["h20", "*", "v0"]],
+    ["esp:16", "relay:IN", "green", ["h40", "*", "v0"]],
+    ["esp:GND.2", "relay:GND", "black", []]
   ],
   "serialMonitor": {
     "display": "terminal",

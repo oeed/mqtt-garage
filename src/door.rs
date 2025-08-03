@@ -2,7 +2,7 @@ use std::{future, pin::pin, str::FromStr};
 
 use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_time::Timer;
-use esp_idf_svc::mqtt::client::QoS;
+use esp_idf_svc::{hal::gpio::Pins, mqtt::client::QoS};
 use serde::Deserialize;
 
 use self::{
@@ -46,8 +46,8 @@ impl SensorPayload {
 }
 
 impl<'a> Door<'a> {
-  pub async fn new(mqtt_channels: &'a MqttChannels) -> GarageResult<Door<'a>> {
-    let remote = DoorRemote::new()?; // TODO: mightn't need to be a result
+  pub async fn new(pins: Pins, mqtt_channels: &'a MqttChannels) -> GarageResult<Door<'a>> {
+    let remote = DoorRemote::new(pins)?;
 
     let sensor_receiver = mqtt_channels.sensor_receiver();
 
@@ -77,12 +77,12 @@ impl<'a> Door<'a> {
 
     let initial_target_state =
       TargetState::from_str(&CONFIG.door.initial_target_state).expect("Invalid initial_target_state");
-    door.goto_target_state(initial_target_state).await;
+    door.goto_target_state(initial_target_state).await?;
 
     Ok(door)
   }
 
-  pub async fn listen(mut self) {
+  pub async fn listen(mut self) -> GarageResult<()> {
     let mut next_target_state: Option<TargetState> = None;
 
     log::info!("Door listening with initial state: {:?}", self.current_state);
@@ -95,7 +95,7 @@ impl<'a> Door<'a> {
         log::info!("Moving to state: {:?}", target_state);
         // only act on commands while not travelling
         next_target_state = None;
-        self.goto_target_state(target_state).await
+        self.goto_target_state(target_state).await?;
       }
 
 
@@ -167,7 +167,7 @@ impl<'a> Door<'a> {
 
                 // we're going to try again
                 log::debug!("Door failed to move, triggering remote again");
-                self.remote.trigger().await;
+                self.remote.trigger().await?;
               }
               else {
                 // we've tried too many times
@@ -226,7 +226,7 @@ impl<'a> Door<'a> {
       .await;
   }
 
-  async fn goto_target_state(&mut self, target_state: TargetState) {
+  async fn goto_target_state(&mut self, target_state: TargetState) -> GarageResult<()> {
     if self.current_state.is_travelling() {
       panic!("Door is currently travelling, cannot move to another target state");
     }
@@ -252,7 +252,9 @@ impl<'a> Door<'a> {
       }
       // trigger the door
       log::debug!("Door is now targeting state {}, triggering remote", target_state);
-      self.remote.trigger().await;
+      self.remote.trigger().await?;
     }
+
+    Ok(())
   }
 }
