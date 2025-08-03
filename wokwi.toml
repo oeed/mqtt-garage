@@ -1,0 +1,5 @@
+[wokwi]
+elf = "target/xtensa-esp32s2-espidf/debug/mqtt-garage"
+firmware = "target/xtensa-esp32s2-espidf/debug/mqtt-garage"
+gdbServerPort = 3333
+version = 1
