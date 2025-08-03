@@ -1,14 +1,13 @@
-use std::{fmt, pin::Pin, str::FromStr, time::Duration};
+use std::{fmt, pin::Pin, str::FromStr};
 
-use serde::Deserialize;
-use tokio::time::{self, Sleep};
+use embassy_time::Timer;
+
+use crate::config::CONFIG;
 
 /// The state the door is trying to get to
-#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetState {
-  #[serde(rename = "OPEN")]
   Open,
-  #[serde(rename = "CLOSED")]
   Closed,
 }
 
@@ -48,46 +47,46 @@ pub enum Stuck {
   Stuck,
 }
 
-impl fmt::Display for Stuck {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Stuck {
+  pub fn as_str(&self) -> &'static str {
     match self {
-      Stuck::Ok => write!(f, "ok"),
-      Stuck::Stuck => write!(f, "stuck"),
+      Stuck::Ok => "ok",
+      Stuck::Stuck => "stuck",
     }
   }
 }
 
 /// Represents a door travel where we can confirm the door has reached the target state.
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct ConfirmedTravel {
-  pub(crate) expiry: Pin<Box<Sleep>>,
+  pub(crate) expiry: Pin<Box<Timer>>,
   /// The number of times this travel has been attempted, starting at 0
   attempt: u8,
-  duration: Duration,
+  duration: embassy_time::Duration,
 }
 
 impl ConfirmedTravel {
-  pub fn new(duration: Duration) -> Self {
+  pub fn new(duration: embassy_time::Duration) -> Self {
     ConfirmedTravel {
-      expiry: Box::pin(time::sleep(duration)),
+      expiry: Box::pin(Timer::after(duration)),
       duration,
       attempt: 0,
     }
   }
 
-  pub fn expiry_mut(&mut self) -> &mut Pin<Box<Sleep>> {
+  pub fn expiry_mut(&mut self) -> &mut Pin<Box<Timer>> {
     &mut self.expiry
   }
 
   /// Renew the expiry on this travel an increment the attempt counter.
   ///
   /// Returns `Err(())` if greater than the maximum number of attempts.
-  pub fn reattempt(&mut self, max_attempts: u8) -> Result<(), ()> {
-    if self.attempt >= max_attempts {
+  pub fn reattempt(&mut self) -> Result<(), ()> {
+    if self.attempt >= CONFIG.door.max_attempts {
       Err(())
     }
     else {
-      self.expiry = Box::pin(time::sleep(self.duration));
+      self.expiry = Box::pin(Timer::after(self.duration));
       self.attempt += 1;
       Ok(())
     }
@@ -95,19 +94,18 @@ impl ConfirmedTravel {
 }
 
 /// Represents an assumed travel. Once complete we assume the door to be in the target state.
-#[derive(Debug)]
 pub struct AssumedTravel {
-  pub(crate) expiry: Pin<Box<Sleep>>,
+  pub(crate) expiry: Pin<Box<Timer>>,
 }
 
 impl AssumedTravel {
-  pub fn new(duration: Duration) -> Self {
+  pub fn new(duration: embassy_time::Duration) -> Self {
     AssumedTravel {
-      expiry: Box::pin(time::sleep(duration)),
+      expiry: Box::pin(Timer::after(duration)),
     }
   }
 
-  pub fn expiry_mut(&mut self) -> &mut Pin<Box<Sleep>> {
+  pub fn expiry_mut(&mut self) -> &mut Pin<Box<Timer>> {
     &mut self.expiry
   }
 }
@@ -124,13 +122,13 @@ pub enum State {
   StuckClosed,
 }
 
-impl fmt::Display for State {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl State {
+  pub fn as_str(&self) -> &'static str {
     match self {
-      State::AttemptingOpen(_) | State::Opening(_) => write!(f, "opening"),
-      State::Open | State::StuckOpen => write!(f, "open"),
-      State::Closing(_) => write!(f, "closing"),
-      State::Closed | State::StuckClosed => write!(f, "closed"),
+      State::AttemptingOpen(_) | State::Opening(_) => "opening",
+      State::Open | State::StuckOpen => "open",
+      State::Closing(_) => "closing",
+      State::Closed | State::StuckClosed => "closed",
     }
   }
 }
@@ -149,12 +147,12 @@ impl fmt::Debug for State {
   }
 }
 
-impl From<DetectedState> for State {
-  fn from(target_state: DetectedState) -> Self {
+impl From<SensorState> for State {
+  fn from(target_state: SensorState) -> Self {
     match target_state {
-      DetectedState::Open => State::Open,
-      DetectedState::Closed => State::Closed,
-      DetectedState::Stuck => State::Open,
+      SensorState::Open => State::Open,
+      SensorState::Closed => State::Closed,
+      SensorState::Stuck => State::Open,
     }
   }
 }
@@ -183,7 +181,7 @@ impl State {
     }
   }
 
-  pub fn expiry_mut(&mut self) -> Option<&mut Pin<Box<Sleep>>> {
+  pub fn expiry_mut(&mut self) -> Option<&mut Pin<Box<Timer>>> {
     match self {
       State::Opening(travel) => Some(travel.expiry_mut()),
       State::AttemptingOpen(travel) | State::Closing(travel) => Some(travel.expiry_mut()),
@@ -207,21 +205,36 @@ impl State {
   }
 }
 
-/// Detectors can tell if a door is open or closed, but not where long it is.
+/// Detectors can tell if a door is open or closed, but not where along it is.
 ///
 /// It can also determine if the door is likely stuck.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum DetectedState {
+pub enum SensorState {
   Open,
   Closed,
+  /// Used for invalid payload too
   Stuck,
 }
 
-impl From<TargetState> for DetectedState {
+
+impl FromStr for SensorState {
+  type Err = ();
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    match s {
+      "OPEN" => Ok(SensorState::Open),
+      "CLOSED" => Ok(SensorState::Closed),
+      _ => Err(()),
+    }
+  }
+}
+
+
+impl From<TargetState> for SensorState {
   fn from(target_state: TargetState) -> Self {
     match target_state {
-      TargetState::Open => DetectedState::Open,
-      TargetState::Closed => DetectedState::Closed,
+      TargetState::Open => SensorState::Open,
+      TargetState::Closed => SensorState::Closed,
     }
   }
 }

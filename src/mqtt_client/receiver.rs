@@ -1,48 +1,58 @@
-use std::collections::HashMap;
+use std::str::FromStr;
 
-use rumqttc::{AsyncClient, Event, EventLoop, Packet, QoS};
-use tokio::sync::mpsc;
+use embassy_sync::{
+  blocking_mutex::raw::NoopRawMutex,
+  channel::{Receiver, Sender},
+};
+use esp_idf_svc::mqtt::client::*;
 
-use super::{MqttPublish, PublishSender};
-use crate::error::GarageResult;
+use crate::{
+  config::CONFIG,
+  door::{SensorPayload, state::TargetState},
+  error::GarageResult,
+  mqtt_client::{CHANNEL_SIZE, MqttChannels},
+};
 
-pub type PublishReceiver = mpsc::UnboundedReceiver<MqttPublish>;
 
-pub struct MqttReceiver {
-  pub(super) client: AsyncClient,
-  pub event_loop: EventLoop,
-  /// The channel with which messages received from MQTT are fowarded on
-  pub receive_channels: HashMap<String, PublishSender>,
+pub type MqttTopicReceiver<'a, T> = Receiver<'a, NoopRawMutex, T, CHANNEL_SIZE>;
+
+pub struct MqttReceiver<'a> {
+  connection: EspAsyncMqttConnection,
+  sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
+  command_send_channel: Sender<'a, NoopRawMutex, TargetState, CHANNEL_SIZE>,
 }
 
-impl MqttReceiver {
-  pub async fn subscribe(&mut self, topic: String, qos: QoS) -> GarageResult<PublishReceiver> {
-    if self.receive_channels.contains_key(&topic) {
-      panic!("attempted to subscribe to the same channel twice");
-    }
+impl<'a> MqttReceiver<'a> {
+  pub async fn new(
+    client: &mut EspAsyncMqttClient,
+    connection: EspAsyncMqttConnection,
+    channels: &'a MqttChannels,
+  ) -> GarageResult<MqttReceiver<'a>> {
+    client.subscribe(&CONFIG.door.sensor_topic, QoS::AtLeastOnce).await?;
+    client.subscribe(&CONFIG.door.command_topic, QoS::AtLeastOnce).await?;
 
-    self.client.subscribe(&topic, qos).await?;
-    let (receive_tx, receive_rx) = mpsc::unbounded_channel();
-    self.receive_channels.insert(topic, receive_tx);
-
-    Ok(receive_rx)
+    Ok(MqttReceiver {
+      connection,
+      sensor_send_channel: channels.sensor_channel.sender(),
+      command_send_channel: channels.command_channel.sender(),
+    })
   }
 
   pub async fn receive_messages(&mut self) -> GarageResult<()> {
     loop {
-      let notification = self.event_loop.poll().await?;
-      if let Event::Incoming(Packet::Publish(message)) = notification {
-        if let Some(channel) = self.receive_channels.get(&message.topic) {
-          if let Ok(payload) = String::from_utf8(message.payload.to_vec()) {
-            channel
-              .send(MqttPublish {
-                topic: message.topic,
-                qos: message.qos,
-                retain: message.retain,
-                payload,
-              })
-              .ok();
-          }
+      let event = self.connection.next().await?;
+      if let EventPayload::Received { topic, data, .. } = event.payload() {
+        if topic == Some(&CONFIG.door.sensor_topic)
+          && let Ok((payload, _)) = serde_json_core::from_slice(data)
+        {
+          self.sensor_send_channel.send(payload).await;
+        }
+        else if topic == Some(&CONFIG.door.command_topic)
+          && let Ok(state) = str::from_utf8(data)
+            .map_err(|_| ())
+            .and_then(|str| TargetState::from_str(str))
+        {
+          self.command_send_channel.send(state).await;
         }
       }
     }

@@ -1,11 +1,12 @@
+use std::{fmt::Debug, future::Future};
+
 use serde::Deserialize;
-use tokio::sync::mpsc::{self, UnboundedReceiver};
 
 use super::{DetectedState, DoorDetector};
 use crate::{
   door::identifier::Identifier,
   error::{GarageError, GarageResult},
-  mqtt_client::{receiver::MqttReceiver, MqttPublish},
+  mqtt_client::{MqttPublish, receiver::MqttTopicReceiver},
 };
 
 #[derive(Debug, Deserialize)]
@@ -13,42 +14,16 @@ pub struct Zigbee2MqttDoorDetectorConfig {
   pub sensor_topic: String,
 }
 
+/// Senses the state of the door from Zigbee2MQTT
 #[derive(Debug)]
-pub struct Zigbee2MqttDoorDetector {
-  sensor_topic: String,
-  mqtt_rx: UnboundedReceiver<MqttPublish>,
-}
-
-impl DetectedState {
-  fn from_publish(sensor_topic: &str, publish: MqttPublish) -> Option<DetectedState> {
-    if sensor_topic == &publish.topic {
-      Some(
-        serde_json::from_str::<ContactSensorPayload>(&publish.payload)
-          .map(|payload| {
-            log::debug!("Received sensor payload: {payload:?}");
-            if payload.contact {
-              DetectedState::Closed
-            }
-            else {
-              DetectedState::Open
-            }
-          })
-          .unwrap_or_else(|e| {
-            log::error!("Failed to parse sensor payload: {}", e);
-            DetectedState::Stuck
-          }),
-      )
-    }
-    else {
-      None
-    }
-  }
+pub struct DoorSensor {
+  sensor_receiver: MqttTopicReceiver<'a, SensorState>,
 }
 
 impl DoorDetector for Zigbee2MqttDoorDetector {
   type Config = Zigbee2MqttDoorDetectorConfig;
 
-  async fn new(_: Identifier, config: Self::Config, mqtt_receiver: &mut MqttReceiver) -> GarageResult<Self> {
+  async fn new(_: Identifier, config: Self::Config, mqtt_receiver: &mut MqttTopicReceiver) -> GarageResult<Self> {
     Ok(Zigbee2MqttDoorDetector {
       mqtt_rx: mqtt_receiver
         .subscribe(config.sensor_topic.clone(), rumqttc::QoS::AtLeastOnce)
@@ -89,10 +64,4 @@ impl DoorDetector for Zigbee2MqttDoorDetector {
 
     Ok((initial_state, detector_rx))
   }
-}
-
-#[derive(Debug, Deserialize)]
-struct ContactSensorPayload {
-  /// `true` if closed
-  contact: bool,
 }
