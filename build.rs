@@ -5,7 +5,10 @@ use config::Config;
 fn main() {
   embuild::espidf::sysenv::output();
 
-  const CONFIG_FILE: &str = "garage-config.toml";
+  #[cfg(debug_assertions)]
+  const CONFIG_FILE: &str = "garage-config.debug.toml";
+  #[cfg(not(debug_assertions))]
+  const CONFIG_FILE: &str = "garage-config.release.toml";
 
   println!("cargo:rerun-if-changed={}", CONFIG_FILE);
 

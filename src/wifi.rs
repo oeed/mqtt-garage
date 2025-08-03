@@ -31,7 +31,12 @@ impl Wifi {
     let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
       ssid: CONFIG.wifi.ssid.as_ref().try_into().unwrap(),
       bssid: None,
-      auth_method: AuthMethod::WPA2Personal,
+      auth_method: if CONFIG.wifi.password.is_empty() {
+        AuthMethod::None
+      }
+      else {
+        AuthMethod::WPA2Personal
+      },
       password: CONFIG.wifi.password.as_ref().try_into().unwrap(),
       channel: None,
       ..Default::default()
@@ -40,7 +45,7 @@ impl Wifi {
     wifi.set_configuration(&wifi_configuration)?;
 
     wifi.start().await?;
-    log::info!("Wifi started");
+    log::info!("Wifi connecting to {}", CONFIG.wifi.ssid);
 
     wifi.connect().await?;
     log::info!("Wifi connected");

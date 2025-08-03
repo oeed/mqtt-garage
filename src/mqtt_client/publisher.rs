@@ -46,7 +46,26 @@ impl<'a> MqttPublisher<'a> {
     Ok(())
   }
 
+  pub async fn subscribe(&mut self) -> GarageResult<()> {
+    log::info!("Subscribing to {}", CONFIG.door.sensor_topic);
+    self
+      .client
+      .subscribe(&CONFIG.door.sensor_topic, QoS::AtLeastOnce)
+      .await?;
+    log::info!("Subscribing to {}", CONFIG.door.command_topic);
+    self
+      .client
+      .subscribe(&CONFIG.door.command_topic, QoS::AtLeastOnce)
+      .await?;
+
+    Ok(())
+  }
+
   pub async fn send_messages(&mut self) -> GarageResult<()> {
+    // send announce and subscribe messages first
+    self.announce().await?;
+    self.subscribe().await?;
+
     loop {
       let publish = self.receive_channel.receive().await;
       self.publish(publish).await?;

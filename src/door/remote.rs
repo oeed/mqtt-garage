@@ -18,6 +18,7 @@ impl DoorRemote {
 
   /// Trigger the remote to send the open/close signal
   pub async fn trigger(&mut self) {
+    log::info!("Triggering remote");
     // NOTE: in future, if multiple doors/remotes are added, use a mutex when sending to prevent signal interference
     // self.pin.set_high();
     Timer::after(CONFIG.door.remote.pressed_duration).await;

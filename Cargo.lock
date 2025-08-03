@@ -479,6 +479,7 @@ dependencies = [
  "critical-section",
  "document-features",
  "embassy-time-driver",
+ "embassy-time-queue-utils",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
@@ -660,7 +661,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "775ce25171dc4f615146a4a27ed3a64c6fd99ced77d7112062f2b19bf933f5db"
 dependencies = [
  "atomic-waker",
- "critical-section",
  "embassy-sync 0.6.2",
  "embedded-can",
  "embedded-hal 0.2.7",

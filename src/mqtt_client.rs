@@ -8,7 +8,7 @@ pub use self::{
 use crate::{
   config::CONFIG,
   door::{SensorPayload, state::TargetState},
-  error::GarageResult,
+  error::{GarageError, GarageResult},
 };
 
 mod publisher;
@@ -52,10 +52,28 @@ pub struct MqttClient<'a> {
   pub publisher: MqttPublisher<'a>,
 }
 
+async fn wait_for_connection(connection: &mut EspAsyncMqttConnection) -> GarageResult<()> {
+  // will timeout if the connection is not established
+  loop {
+    match connection.next().await?.payload() {
+      EventPayload::Connected(_) => return Ok(()),
+      EventPayload::Disconnected => {
+        log::error!("Could not establish connection to MQTT broker");
+        return Err(GarageError::MqttClosed);
+      }
+      EventPayload::Error(err) => {
+        log::error!("MQTT error: {:?}", err);
+        return Err(err.clone().into());
+      }
+      _ => {}
+    }
+  }
+}
+
 impl<'a> MqttClient<'a> {
   pub async fn new(channels: &'a MqttChannels) -> GarageResult<MqttClient<'a>> {
-    log::info!("Creating MQTT client");
-    let (mut client, connection) = EspAsyncMqttClient::new(
+    log::info!("Creating MQTT client: {}", CONFIG.mqtt.url);
+    let (client, mut connection) = EspAsyncMqttClient::new(
       &CONFIG.mqtt.url,
       &MqttClientConfiguration {
         client_id: Some(&CONFIG.mqtt.client_id),
@@ -69,8 +87,11 @@ impl<'a> MqttClient<'a> {
       },
     )?;
 
+    wait_for_connection(&mut connection).await?;
+    log::info!("MQTT client connected");
+
     Ok(MqttClient {
-      receiver: MqttReceiver::new(&mut client, connection, channels).await?,
+      receiver: MqttReceiver::new(connection, channels),
       publisher: MqttPublisher::new(client, channels),
     })
   }

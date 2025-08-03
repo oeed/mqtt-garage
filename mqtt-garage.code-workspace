@@ -12,22 +12,7 @@
     "rust-analyzer.rustfmt.extraArgs": ["+nightly"]
   },
   "launch": {
-    "configurations": [
-      {
-        "type": "lldb",
-        "request": "launch",
-        "name": "MQTT Garage",
-        "preLaunchTask": "build",
-        "program": "${workspaceRoot:mqtt-garage}/target/debug/mqtt-garage",
-        "cwd": "${workspaceRoot:mqtt-garage}",
-        "sourceLanguages": ["rust"],
-        "terminal": "integrated",
-        "console": "integratedTerminal",
-        "env": {
-          "RUST_LOG": "info"
-        }
-      }
-    ]
+    "configurations": []
   },
   "tasks": {
     "version": "2.0.0",

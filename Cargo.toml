@@ -15,7 +15,7 @@ serde-json-core = "0.6"
 thiserror = "1.0"
 
 embedded-svc = "0.28.1"
-esp-idf-svc = {version = "0.51", features = ["critical-section", "embassy-time-driver", "embassy-sync"]}
+esp-idf-svc = {version = "0.51", features = ["embassy-time-driver", "embassy-sync"]}
 
 # --- Optional Embassy Integration ---
 # esp-idf-svc = { version = "0.51", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
@@ -29,7 +29,7 @@ esp-idf-svc = {version = "0.51", features = ["critical-section", "embassy-time-d
 embassy-executor = {version = "0.8", features = ["executor-thread", "arch-std"]}
 embassy-futures = "0.1.1"
 embassy-sync = "0.7"
-embassy-time = "0.4"
+embassy-time = {version = "0.4", features = ["generic-queue-8"]}
 
 # NOTE: if you use embassy-time with embassy-executor you don't need the generic-queue-8 feature
 

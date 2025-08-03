@@ -92,6 +92,7 @@ impl<'a> Door<'a> {
       if let Some(target_state) = next_target_state
         && !self.current_state.is_travelling()
       {
+        log::info!("Moving to state: {:?}", target_state);
         // only act on commands while not travelling
         next_target_state = None;
         self.goto_target_state(target_state).await
@@ -117,6 +118,8 @@ impl<'a> Door<'a> {
         pin!(async { self.command_receiver.receive().await }),
       )
       .await;
+
+      log::info!("Action: {:?}", action);
 
       // process the action
       match action {
@@ -168,7 +171,7 @@ impl<'a> Door<'a> {
               }
               else {
                 // we've tried too many times
-                log::debug!("Door failed to move after maximum attemps, marking as stuck");
+                log::info!("Door failed to move after maximum attemps, marking as stuck");
                 match self.current_state {
                   State::AttemptingOpen(_) => self.set_current_state(State::StuckClosed).await,
                   State::Closing(_) => self.set_current_state(State::StuckClosed).await,
@@ -188,6 +191,7 @@ impl<'a> Door<'a> {
         }
         Either3::Third(target_state) => {
           // command received
+          log::info!("Next target state: {:?}", target_state);
           next_target_state = Some(target_state);
         }
       }
@@ -204,7 +208,7 @@ impl<'a> Door<'a> {
     self
       .publisher
       .publish(MqttPublish {
-        topic: &CONFIG.door.sensor_topic,
+        topic: &CONFIG.door.state_topic,
         qos: QoS::AtLeastOnce,
         retain: true,
         payload: self.current_state.as_str(),

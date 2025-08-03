@@ -23,28 +23,23 @@ pub struct MqttReceiver<'a> {
 }
 
 impl<'a> MqttReceiver<'a> {
-  pub async fn new(
-    client: &mut EspAsyncMqttClient,
-    connection: EspAsyncMqttConnection,
-    channels: &'a MqttChannels,
-  ) -> GarageResult<MqttReceiver<'a>> {
-    client.subscribe(&CONFIG.door.sensor_topic, QoS::AtLeastOnce).await?;
-    client.subscribe(&CONFIG.door.command_topic, QoS::AtLeastOnce).await?;
-
-    Ok(MqttReceiver {
+  pub fn new(connection: EspAsyncMqttConnection, channels: &'a MqttChannels) -> MqttReceiver<'a> {
+    MqttReceiver {
       connection,
       sensor_send_channel: channels.sensor_channel.sender(),
       command_send_channel: channels.command_channel.sender(),
-    })
+    }
   }
 
   pub async fn receive_messages(&mut self) -> GarageResult<()> {
     loop {
       let event = self.connection.next().await?;
       if let EventPayload::Received { topic, data, .. } = event.payload() {
+        log::info!("{topic:?}: {data:?}", data = String::from_utf8_lossy(data));
         if topic == Some(&CONFIG.door.sensor_topic)
           && let Ok((payload, _)) = serde_json_core::from_slice(data)
         {
+          log::info!("Received sensor: {payload:?}");
           self.sensor_send_channel.send(payload).await;
         }
         else if topic == Some(&CONFIG.door.command_topic)
@@ -52,6 +47,7 @@ impl<'a> MqttReceiver<'a> {
             .map_err(|_| ())
             .and_then(|str| TargetState::from_str(str))
         {
+          log::info!("Received command: {state}");
           self.command_send_channel.send(state).await;
         }
       }
