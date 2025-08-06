@@ -75,7 +75,7 @@ async fn wait_for_connection(connection: &mut EspAsyncMqttConnection) -> GarageR
 impl<'a> MqttClient<'a> {
   pub async fn new(channels: &'a MqttChannels, rgb_led: &mut RgbLed) -> GarageResult<MqttClient<'a>> {
     log::info!("Creating MQTT client: {}", CONFIG.mqtt.url);
-    rgb_led.on(colors::ORANGE);
+    rgb_led.on(colors::ORANGE_RED);
     let (client, mut connection) = EspAsyncMqttClient::new(
       &CONFIG.mqtt.url,
       &MqttClientConfiguration {

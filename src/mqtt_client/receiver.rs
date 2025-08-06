@@ -9,7 +9,7 @@ use esp_idf_svc::mqtt::client::*;
 use crate::{
   config::CONFIG,
   door::{SensorPayload, state::TargetState},
-  error::GarageResult,
+  error::{GarageError, GarageResult},
   mqtt_client::{CHANNEL_SIZE, MqttChannels},
 };
 
@@ -34,22 +34,31 @@ impl<'a> MqttReceiver<'a> {
   pub async fn receive_messages(&mut self) -> GarageResult<()> {
     loop {
       let event = self.connection.next().await?;
-      if let EventPayload::Received { topic, data, .. } = event.payload() {
-        log::info!("{topic:?}: {data:?}", data = String::from_utf8_lossy(data));
-        if topic == Some(&CONFIG.door.sensor_topic)
-          && let Ok((payload, _)) = serde_json_core::from_slice(data)
-        {
-          log::info!("Received sensor: {payload:?}");
-          self.sensor_send_channel.send(payload).await;
+      match event.payload() {
+        EventPayload::Received { topic, data, .. } => {
+          log::info!("{topic:?}: {data:?}", data = String::from_utf8_lossy(data));
+          if topic == Some(&CONFIG.door.sensor_topic)
+            && let Ok((payload, _)) = serde_json_core::from_slice(data)
+          {
+            log::info!("Received sensor: {payload:?}");
+            self.sensor_send_channel.send(payload).await;
+          }
+          else if topic == Some(&CONFIG.door.command_topic)
+            && let Ok(state) = str::from_utf8(data)
+              .map_err(|_| ())
+              .and_then(|str| TargetState::from_str(str))
+          {
+            log::info!("Received command: {state}");
+            self.command_send_channel.send(state).await;
+          }
         }
-        else if topic == Some(&CONFIG.door.command_topic)
-          && let Ok(state) = str::from_utf8(data)
-            .map_err(|_| ())
-            .and_then(|str| TargetState::from_str(str))
-        {
-          log::info!("Received command: {state}");
-          self.command_send_channel.send(state).await;
+
+        EventPayload::Disconnected => {
+          log::error!("MQTT disconnected");
+          return Err(GarageError::MqttClosed);
         }
+
+        _ => {}
       }
     }
   }

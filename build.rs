@@ -25,6 +25,7 @@ fn main() {
       use std::borrow::Cow;
       pub static CONFIG: Config = Config {{
         wifi: WifiConfig {{
+          hostname: Cow::Borrowed("{wifi_hostname}"),
           ssid: Cow::Borrowed("{wifi_ssid}"),
           password: Cow::Borrowed("{wifi_psk}"),
         }},
@@ -52,6 +53,7 @@ fn main() {
       }};
   "#,
     // WIFI
+    wifi_hostname = config.wifi.hostname,
     wifi_ssid = config.wifi.ssid,
     wifi_psk = config.wifi.password,
     // MQTT

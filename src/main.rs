@@ -4,7 +4,7 @@
 use std::pin::pin;
 
 use embassy_executor::Spawner;
-use embassy_futures::select::{Either3, select3};
+use embassy_futures::select::{Either4, select4};
 use esp_idf_svc::{
   eventloop::EspSystemEventLoop, hal::prelude::Peripherals, log::EspLogger, nvs::EspDefaultNvsPartition,
   timer::EspTimerService,
@@ -40,7 +40,7 @@ async fn main(_spawner: Spawner) {
   // loop {
   let err = async {
     let mut rgb_led = RgbLed::new(peripherals.rmt.channel0, peripherals.pins.gpio48)?;
-    let _wifi = Wifi::connect(
+    let wifi = Wifi::connect(
       peripherals.modem,
       sys_loop.clone(),
       timer_service.clone(),
@@ -55,7 +55,8 @@ async fn main(_spawner: Spawner) {
     } = MqttClient::new(&mqtt_channels, &mut rgb_led).await?;
 
 
-    let result = select3(
+    let result = select4(
+      pin!(async move { wifi.wait_for_disconnect().await }),
       pin!(async move { mqtt_receiver.receive_messages().await }),
       pin!(async move { mqtt_publisher.send_messages().await }),
       pin!(async {
@@ -70,7 +71,9 @@ async fn main(_spawner: Spawner) {
     .await;
 
     match result {
-      Either3::First(Err(err)) | Either3::Second(Err(err)) | Either3::Third(Err(err)) => Err::<(), _>(err),
+      Either4::First(Err(err)) | Either4::Second(Err(err)) | Either4::Third(Err(err)) | Either4::Fourth(Err(err)) => {
+        Err::<(), _>(err)
+      }
       _ => unreachable!(),
     }
   }

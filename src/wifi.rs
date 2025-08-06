@@ -1,18 +1,24 @@
-use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
+use embedded_svc::wifi::{self, AuthMethod, Configuration};
 use esp_idf_svc::{
   eventloop::EspSystemEventLoop,
   hal::modem::Modem,
+  ipv4::{self, DHCPClientSettings},
+  netif::{EspNetif, NetifConfiguration, NetifStack},
   nvs::EspDefaultNvsPartition,
   timer::EspTaskTimerService,
-  wifi::{AsyncWifi, EspWifi},
+  wifi::{AsyncWifi, EspWifi, WifiDriver},
 };
 use smart_leds::colors;
 
-use crate::{config::CONFIG, error::GarageResult, rgb::RgbLed};
+use crate::{
+  config::CONFIG,
+  error::{GarageError, GarageResult},
+  rgb::RgbLed,
+};
 
 #[must_use]
 pub struct Wifi {
-  _wifi: AsyncWifi<EspWifi<'static>>,
+  wifi: AsyncWifi<EspWifi<'static>>,
 }
 
 impl Wifi {
@@ -23,13 +29,27 @@ impl Wifi {
     nvs: EspDefaultNvsPartition,
     rgb_led: &mut RgbLed,
   ) -> GarageResult<Wifi> {
+    let driver = WifiDriver::new(modem, sys_loop.clone(), Some(nvs))?;
+    let netif_config = NetifConfiguration {
+      ip_configuration: Some(ipv4::Configuration::Client(ipv4::ClientConfiguration::DHCP(
+        DHCPClientSettings {
+          hostname: Some(CONFIG.wifi.hostname.as_ref().try_into().unwrap()),
+        },
+      ))),
+
+      ..NetifConfiguration::wifi_default_client()
+    };
     let mut wifi = AsyncWifi::wrap(
-      EspWifi::new(modem, sys_loop.clone(), Some(nvs))?,
+      EspWifi::wrap_all(
+        driver,
+        EspNetif::new_with_conf(&netif_config)?,
+        EspNetif::new(NetifStack::Ap)?,
+      )?,
       sys_loop,
       timer_service,
     )?;
 
-    let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
+    let wifi_configuration: Configuration = Configuration::Client(wifi::ClientConfiguration {
       ssid: CONFIG.wifi.ssid.as_ref().try_into().unwrap(),
       bssid: None,
       auth_method: if CONFIG.wifi.password.is_empty() {
@@ -62,7 +82,12 @@ impl Wifi {
 
     log::info!("Wifi DHCP info: {ip_info:?}");
 
-    // TODO: probably need to monitor the connection status and reconnect if needed?
-    Ok(Wifi { _wifi: wifi })
+    Ok(Wifi { wifi })
+  }
+
+  pub async fn wait_for_disconnect(mut self) -> GarageResult<()> {
+    self.wifi.wifi_wait(|wifi| wifi.is_up(), None).await?;
+    log::info!("Wifi disconnected");
+    Err(GarageError::WifiDisconnected)
   }
 }

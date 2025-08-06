@@ -11,6 +11,7 @@ pub struct Config {
 
 #[derive(Debug, Deserialize)]
 pub struct WifiConfig {
+  pub hostname: Cow<'static, str>,
   pub ssid: Cow<'static, str>,
   pub password: Cow<'static, str>,
 }

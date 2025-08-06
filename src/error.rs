@@ -12,4 +12,6 @@ pub enum GarageError {
   MqttClosed,
   #[error("door initialisation timeout (sensor state not available)")]
   DoorInitialisationTimeout,
+  #[error("wifi disconnected")]
+  WifiDisconnected,
 }
