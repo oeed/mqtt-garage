@@ -1,0 +1,1 @@
+Note due to a macOS driver issue you need to use https://github.com/WCHSoftGroup/ch34xser_macos (install the DMG, and make sure to turn on the extension in System Settings). Then, you need to use the wch device.

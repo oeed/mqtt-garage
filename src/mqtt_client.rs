@@ -1,5 +1,6 @@
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
 use esp_idf_svc::mqtt::client::*;
+use smart_leds::colors;
 
 pub use self::{
   publisher::{MqttPublish, MqttPublisher, MqttTopicPublisher},
@@ -9,6 +10,7 @@ use crate::{
   config::CONFIG,
   door::{SensorPayload, state::TargetState},
   error::{GarageError, GarageResult},
+  rgb::RgbLed,
 };
 
 mod publisher;
@@ -71,8 +73,9 @@ async fn wait_for_connection(connection: &mut EspAsyncMqttConnection) -> GarageR
 }
 
 impl<'a> MqttClient<'a> {
-  pub async fn new(channels: &'a MqttChannels) -> GarageResult<MqttClient<'a>> {
+  pub async fn new(channels: &'a MqttChannels, rgb_led: &mut RgbLed) -> GarageResult<MqttClient<'a>> {
     log::info!("Creating MQTT client: {}", CONFIG.mqtt.url);
+    rgb_led.on(colors::ORANGE);
     let (client, mut connection) = EspAsyncMqttClient::new(
       &CONFIG.mqtt.url,
       &MqttClientConfiguration {
@@ -88,6 +91,7 @@ impl<'a> MqttClient<'a> {
     )?;
 
     wait_for_connection(&mut connection).await?;
+    rgb_led.off();
     log::info!("MQTT client connected");
 
     Ok(MqttClient {

@@ -2,8 +2,9 @@ use std::{future, pin::pin, str::FromStr};
 
 use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_time::Timer;
-use esp_idf_svc::{hal::gpio::Pins, mqtt::client::QoS};
+use esp_idf_svc::{hal::gpio::Gpio14, mqtt::client::QoS};
 use serde::Deserialize;
+use smart_leds::colors;
 
 use self::{
   remote::DoorRemote,
@@ -14,6 +15,7 @@ use crate::{
   door::state::{AssumedTravel, ConfirmedTravel},
   error::{GarageError, GarageResult},
   mqtt_client::{MqttChannels, MqttPublish, MqttTopicPublisher, MqttTopicReceiver},
+  rgb::RgbLed,
 };
 
 pub mod remote;
@@ -24,7 +26,7 @@ pub struct Door<'a> {
   sensor_receiver: MqttTopicReceiver<'a, SensorPayload>,
   command_receiver: MqttTopicReceiver<'a, TargetState>,
 
-  remote: DoorRemote,
+  remote: DoorRemote<'a>,
   current_state: State,
 }
 
@@ -46,24 +48,26 @@ impl SensorPayload {
 }
 
 impl<'a> Door<'a> {
-  pub async fn new(pins: Pins, mqtt_channels: &'a MqttChannels) -> GarageResult<Door<'a>> {
-    let remote = DoorRemote::new(pins)?;
-
+  pub async fn new(gpio: Gpio14, mqtt_channels: &'a MqttChannels, rgb_led: &'a mut RgbLed) -> GarageResult<Door<'a>> {
     let sensor_receiver = mqtt_channels.sensor_receiver();
 
     log::info!("Getting initial state from sensor");
 
+    rgb_led.on(colors::YELLOW);
     let initial_state = select(
       pin!(async move { sensor_receiver.receive().await.into_state() }),
       pin!(Timer::after(embassy_time::Duration::from_secs(10))),
     )
     .await;
+    rgb_led.off();
 
     let initial_state = match initial_state {
       Either::First(state) => state,
       Either::Second(_) => return Err(GarageError::DoorInitialisationTimeout),
     };
     log::info!("Initial state: {:?}", initial_state);
+
+    let remote = DoorRemote::new(gpio, rgb_led)?;
 
     let mut door = Door {
       publisher: mqtt_channels.publisher(),
@@ -118,8 +122,6 @@ impl<'a> Door<'a> {
         pin!(async { self.command_receiver.receive().await }),
       )
       .await;
-
-      log::info!("Action: {:?}", action);
 
       // process the action
       match action {

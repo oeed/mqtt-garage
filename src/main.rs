@@ -10,10 +10,10 @@ use esp_idf_svc::{
   timer::EspTimerService,
 };
 
-// use tokio::{self, select, task::JoinSet, time::sleep};
 use crate::{
   door::Door,
   mqtt_client::{MqttChannels, MqttClient},
+  rgb::RgbLed,
   wifi::Wifi,
 };
 
@@ -21,6 +21,7 @@ pub mod config;
 pub mod door;
 pub mod error;
 pub mod mqtt_client;
+pub mod rgb;
 pub mod wifi;
 
 
@@ -38,18 +39,33 @@ async fn main(_spawner: Spawner) {
 
   // loop {
   let err = async {
-    let _wifi = Wifi::connect(peripherals.modem, sys_loop.clone(), timer_service.clone(), nvs.clone()).await?;
+    let mut rgb_led = RgbLed::new(peripherals.rmt.channel0, peripherals.pins.gpio48)?;
+    let _wifi = Wifi::connect(
+      peripherals.modem,
+      sys_loop.clone(),
+      timer_service.clone(),
+      nvs.clone(),
+      &mut rgb_led,
+    )
+    .await?;
     let mqtt_channels = MqttChannels::new();
     let MqttClient {
       receiver: mut mqtt_receiver,
       publisher: mut mqtt_publisher,
-    } = MqttClient::new(&mqtt_channels).await?;
+    } = MqttClient::new(&mqtt_channels, &mut rgb_led).await?;
 
 
     let result = select3(
       pin!(async move { mqtt_receiver.receive_messages().await }),
       pin!(async move { mqtt_publisher.send_messages().await }),
-      pin!(async { Ok(Door::new(peripherals.pins, &mqtt_channels).await?.listen().await?) }),
+      pin!(async {
+        Ok(
+          Door::new(peripherals.pins.gpio14, &mqtt_channels, &mut rgb_led)
+            .await?
+            .listen()
+            .await?,
+        )
+      }),
     )
     .await;
 
@@ -61,11 +77,11 @@ async fn main(_spawner: Spawner) {
   .await
   .unwrap_err(); // never Ok
 
-  #[cfg(debug_assertions)]
-  log::error!("Fatal error: {:?}", err);
+  // #[cfg(debug_assertions)]
+  // log::error!("Fatal error: {:?}", err);
 
   // only restart if not in debug mode
-  #[cfg(not(debug_assertions))]
+  // #[cfg(not(debug_assertions))]
   {
     log::error!("Fatal error, restarting in 5 seconds: {:?}", err);
     // wait some time for the broker to come back online

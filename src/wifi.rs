@@ -6,8 +6,9 @@ use esp_idf_svc::{
   timer::EspTaskTimerService,
   wifi::{AsyncWifi, EspWifi},
 };
+use smart_leds::colors;
 
-use crate::{config::CONFIG, error::GarageResult};
+use crate::{config::CONFIG, error::GarageResult, rgb::RgbLed};
 
 #[must_use]
 pub struct Wifi {
@@ -20,6 +21,7 @@ impl Wifi {
     sys_loop: EspSystemEventLoop,
     timer_service: EspTaskTimerService,
     nvs: EspDefaultNvsPartition,
+    rgb_led: &mut RgbLed,
   ) -> GarageResult<Wifi> {
     let mut wifi = AsyncWifi::wrap(
       EspWifi::new(modem, sys_loop.clone(), Some(nvs))?,
@@ -43,6 +45,9 @@ impl Wifi {
 
     wifi.set_configuration(&wifi_configuration)?;
 
+    rgb_led.on(colors::RED);
+
+    log::info!("Wifi starting...");
     wifi.start().await?;
     log::info!("Wifi connecting to {}", CONFIG.wifi.ssid);
 
@@ -51,6 +56,7 @@ impl Wifi {
 
     wifi.wait_netif_up().await?;
     log::info!("Wifi netif up");
+    rgb_led.off();
 
     let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
 

@@ -1,0 +1,2 @@
+[connection]
+serial = "/dev/cu.wchusbserial58FA0381661"
