@@ -1,3 +1,5 @@
+use std::net::SocketAddrV4;
+
 use embedded_svc::wifi::{self, AuthMethod, Configuration};
 use esp_idf_svc::{
   eventloop::EspSystemEventLoop,
@@ -81,6 +83,34 @@ impl Wifi {
     let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
 
     log::info!("Wifi DHCP info: {ip_info:?}");
+
+    #[cfg(not(debug_assertions))]
+    {
+      use esp_syslog::{BasicLogger, Facility, Formatter3164};
+      use log::LevelFilter;
+
+      use crate::config::CONFIG;
+
+      let formatter = Formatter3164 {
+        facility: Facility::LOG_USER,
+        process: "mqtt-garage".into(),
+        pid: 0,
+      };
+
+      let logger = esp_syslog::udp(
+        formatter,
+        SocketAddrV4::new(ip_info.ip, 4000),
+        CONFIG.wifi.syslog_server,
+      );
+
+
+      if let Ok(logger) = logger {
+        log::set_boxed_logger(Box::new(BasicLogger::new(logger)))
+          .map(|()| log::set_max_level(LevelFilter::Info))
+          .ok();
+        esp_syslog::set_network_available();
+      }
+    }
 
     Ok(Wifi { wifi })
   }

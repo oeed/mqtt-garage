@@ -1,13 +1,13 @@
 #![warn(rust_2018_idioms)]
 
-
 use std::pin::pin;
 
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either4, select4};
+#[cfg(debug_assertions)]
+use esp_idf_svc::log::EspLogger;
 use esp_idf_svc::{
-  eventloop::EspSystemEventLoop, hal::prelude::Peripherals, log::EspLogger, nvs::EspDefaultNvsPartition,
-  timer::EspTimerService,
+  eventloop::EspSystemEventLoop, hal::prelude::Peripherals, nvs::EspDefaultNvsPartition, timer::EspTimerService,
 };
 
 use crate::{
@@ -28,7 +28,9 @@ pub mod wifi;
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
   esp_idf_svc::sys::link_patches();
+  #[cfg(debug_assertions)]
   EspLogger::initialize_default();
+  // release logger is configured in wifi.rs
 
   log::info!("Starting...");
 

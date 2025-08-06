@@ -36,7 +36,6 @@ impl<'a> MqttReceiver<'a> {
       let event = self.connection.next().await?;
       match event.payload() {
         EventPayload::Received { topic, data, .. } => {
-          log::info!("{topic:?}: {data:?}", data = String::from_utf8_lossy(data));
           if topic == Some(&CONFIG.door.sensor_topic)
             && let Ok((payload, _)) = serde_json_core::from_slice(data)
           {

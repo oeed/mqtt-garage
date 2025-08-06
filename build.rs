@@ -23,11 +23,13 @@ fn main() {
   let generated_code = format!(
     r#"
       use std::borrow::Cow;
+      use std::net::{{Ipv4Addr, SocketAddrV4}};
       pub static CONFIG: Config = Config {{
         wifi: WifiConfig {{
           hostname: Cow::Borrowed("{wifi_hostname}"),
           ssid: Cow::Borrowed("{wifi_ssid}"),
           password: Cow::Borrowed("{wifi_psk}"),
+          syslog_server: SocketAddrV4::new(Ipv4Addr::from_bits({wifi_syslog_server_ip}), {wifi_syslog_server_port}),
         }},
         mqtt: MqttConfig {{
           url: Cow::Borrowed("{mqtt_url}"),
@@ -56,6 +58,8 @@ fn main() {
     wifi_hostname = config.wifi.hostname,
     wifi_ssid = config.wifi.ssid,
     wifi_psk = config.wifi.password,
+    wifi_syslog_server_ip = config.wifi.syslog_server.ip().to_bits(),
+    wifi_syslog_server_port = config.wifi.syslog_server.port(),
     // MQTT
     mqtt_url = config.mqtt.url,
     mqtt_client_id = config.mqtt.client_id,
