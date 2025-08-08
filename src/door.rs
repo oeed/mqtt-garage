@@ -175,8 +175,10 @@ impl<'a> Door<'a> {
                 // we've tried too many times
                 log::info!("Door failed to move after maximum attemps, marking as stuck");
                 match self.current_state {
+                  // Attempting to open but failed => stuck closed
                   State::AttemptingOpen(_) => self.set_current_state(State::StuckClosed).await,
-                  State::Closing(_) => self.set_current_state(State::StuckClosed).await,
+                  // Attempting to close but failed => stuck open
+                  State::Closing(_) => self.set_current_state(State::StuckOpen).await,
                   _ => unreachable!(),
                 }
               }

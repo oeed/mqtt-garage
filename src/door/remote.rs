@@ -1,5 +1,5 @@
 pub use config::RemoteConfig;
-use embassy_time::Timer;
+use embassy_time::{Instant, Timer};
 use esp_idf_svc::hal::gpio::{self, Gpio14, PinDriver};
 use smart_leds::colors;
 
@@ -12,7 +12,9 @@ pub struct DoorRemote<'a> {
 
 impl<'a> DoorRemote<'a> {
   pub fn new(gpio: Gpio14, rgb_led: &'a mut RgbLed) -> GarageResult<Self> {
-    let pin = PinDriver::output(gpio)?;
+    let mut pin = PinDriver::output(gpio)?;
+    // Ensure the relay/output starts in a safe (off) state
+    pin.set_low()?;
 
     Ok(DoorRemote { pin, rgb_led })
   }
@@ -23,10 +25,15 @@ impl<'a> DoorRemote<'a> {
     // NOTE: in future, if multiple doors/remotes are added, use a mutex when sending to prevent signal interference
     self.pin.set_high()?;
     self.rgb_led.on(colors::LIME);
+    let t0 = Instant::now();
     Timer::after(CONFIG.door.remote.pressed_duration).await;
+    log::info!("Remote press window elapsed ({} ms)", t0.elapsed().as_millis());
+    log::info!("Releasing remote");
     self.pin.set_low()?;
     self.rgb_led.off();
+    let t1 = Instant::now();
     Timer::after(CONFIG.door.remote.wait_duration).await;
+    log::info!("Post-press settle elapsed ({} ms)", t1.elapsed().as_millis());
     Ok(())
   }
 }

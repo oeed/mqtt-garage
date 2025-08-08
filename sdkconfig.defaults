@@ -8,3 +8,21 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8000
 # Workaround for https://github.com/espressif/esp-idf/issues/7631
 #CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n
 #CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=n
+
+# --- ESP32-S3 reliability: brownout + watchdogs ---
+# Enable brownout detector so the chip auto-resets on supply dips (ESP-IDF v5 style)
+CONFIG_ESP_SYSTEM_BROWNOUT=y
+# Also set legacy names for older IDF variants; ignored if not applicable
+CONFIG_BROWNOUT_DET=y
+# Threshold selection (IDF will ignore unknowns). Adjust via menuconfig if needed.
+#CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y
+#CONFIG_BROWNOUT_DET_LVL_SEL_7=y
+
+# Enable Task Watchdog to reset on stalls
+CONFIG_ESP_TASK_WDT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=8
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y
+
+# Keep bootloader watchdog enabled for extra robustness on unstable power
+CONFIG_BOOTLOADER_WDT_ENABLE=y

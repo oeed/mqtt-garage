@@ -88,6 +88,12 @@ impl ConfirmedTravel {
     else {
       self.expiry = Box::pin(Timer::after(self.duration));
       self.attempt += 1;
+      log::info!(
+        "Door travel reattempt {} of {} (duration: {:?})",
+        self.attempt,
+        CONFIG.door.max_attempts,
+        self.duration
+      );
       Ok(())
     }
   }
