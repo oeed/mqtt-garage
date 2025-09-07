@@ -3,7 +3,10 @@ use std::net::SocketAddrV4;
 use embedded_svc::wifi::{self, AuthMethod, Configuration};
 use esp_idf_svc::{
   eventloop::EspSystemEventLoop,
-  hal::modem::Modem,
+  hal::{
+    modem::Modem,
+    reset::{ResetReason, WakeupReason},
+  },
   ipv4::{self, DHCPClientSettings},
   netif::{EspNetif, NetifConfiguration, NetifStack},
   nvs::EspDefaultNvsPartition,
@@ -84,7 +87,7 @@ impl Wifi {
 
     log::info!("Wifi DHCP info: {ip_info:?}");
 
-    #[cfg(not(debug_assertions))]
+    // #[cfg(not(debug_assertions))]
     {
       use esp_syslog::{BasicLogger, Facility, Formatter3164};
       use log::LevelFilter;
@@ -110,6 +113,31 @@ impl Wifi {
           .ok();
         esp_syslog::set_network_available();
       }
+
+      // If a previous run crashed and a core dump was saved to flash,
+      // retrieve its flash address/size, log summary, then erase it.
+      unsafe {
+        use esp_idf_svc::sys;
+        if sys::esp_core_dump_image_check() == sys::ESP_OK as i32 {
+          let mut flash_addr: usize = 0;
+          let mut flash_size: usize = 0;
+          let rc = sys::esp_core_dump_image_get(&mut flash_addr as *mut usize, &mut flash_size as *mut usize);
+          if rc == sys::ESP_OK as i32 && flash_size > 0 {
+            log::warn!(
+              "Core dump present at flash 0x{:X}, size {} bytes",
+              flash_addr,
+              flash_size
+            );
+          }
+          else {
+            log::warn!("Core dump present but could not get address/size (rc={})", rc);
+          }
+          let _ = sys::esp_core_dump_image_erase();
+        }
+      }
+
+      log::info!("Reset reason: {:?}", ResetReason::get());
+      log::info!("Wakeup reason: {:?}", WakeupReason::get());
     }
 
     Ok(Wifi { wifi })
