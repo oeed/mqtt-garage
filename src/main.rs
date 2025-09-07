@@ -42,7 +42,7 @@ async fn main(_spawner: Spawner) {
   // loop {
   let err = async {
     let mut rgb_led = RgbLed::new(peripherals.rmt.channel0, peripherals.pins.gpio48)?;
-    let wifi = Wifi::connect(
+    let _wifi = Wifi::connect(
       peripherals.modem,
       sys_loop.clone(),
       timer_service.clone(),
@@ -50,15 +50,22 @@ async fn main(_spawner: Spawner) {
       &mut rgb_led,
     )
     .await?;
+
+
+    std::thread::spawn(move || {
+      loop {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+        log::info!("Thread heartbeat");
+      }
+    });
+
     let mqtt_channels = MqttChannels::new();
     let MqttClient {
       receiver: mut mqtt_receiver,
       publisher: mut mqtt_publisher,
     } = MqttClient::new(&mqtt_channels, &mut rgb_led).await?;
 
-
     let result = select4(
-      pin!(async move { wifi.wait_for_disconnect().await }),
       pin!(async move { mqtt_receiver.receive_messages().await }),
       pin!(async move { mqtt_publisher.send_messages().await }),
       pin!(async {
@@ -68,6 +75,13 @@ async fn main(_spawner: Spawner) {
             .listen()
             .await?,
         )
+      }),
+      pin!(async {
+        loop {
+          embassy_time::Timer::after(embassy_time::Duration::from_secs(1)).await;
+          log::info!("Future heartbeat");
+        }
+        Ok(())
       }),
     )
     .await;
