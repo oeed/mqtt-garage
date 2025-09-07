@@ -14,8 +14,9 @@ impl RgbLed {
     Ok(RgbLed { ws2812 })
   }
 
-  pub fn on(&mut self, rgba: RGB<u8>) {
-    self.ws2812.write(std::iter::once(rgba)).unwrap();
+  pub fn on(&mut self, rgb: RGB<u8>) {
+    let dimmer = RGB::new(rgb.r / 20, rgb.g / 20, rgb.b / 20);
+    self.ws2812.write(std::iter::once(dimmer)).unwrap();
   }
 
   pub fn off(&mut self) {
