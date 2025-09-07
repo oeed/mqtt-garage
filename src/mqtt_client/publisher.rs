@@ -62,13 +62,25 @@ impl<'a> MqttPublisher<'a> {
   }
 
   pub async fn send_messages(&mut self) -> GarageResult<()> {
-    // send announce and subscribe messages first
-    self.announce().await?;
-    self.subscribe().await?;
+    // send announce and subscribe messages first; if broker isn't ready yet, retry
+    loop {
+      match (self.announce().await, self.subscribe().await) {
+        (Ok(()), Ok(())) => break,
+        _ => {
+          log::warn!("MQTT announce/subscribe failed; retrying shortly");
+          embassy_time::Timer::after(embassy_time::Duration::from_millis(500)).await;
+        }
+      }
+    }
 
     loop {
       let publish = self.receive_channel.receive().await;
-      self.publish(publish).await?;
+      if let Err(err) = self.publish(publish).await {
+        log::warn!("MQTT publish failed: {:?}; will retry announce/subscribe", err);
+        // attempt to re-announce and re-subscribe before continuing
+        let _ = self.announce().await;
+        let _ = self.subscribe().await;
+      }
     }
   }
 

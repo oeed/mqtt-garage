@@ -9,7 +9,7 @@ use esp_idf_svc::mqtt::client::*;
 use crate::{
   config::CONFIG,
   door::{SensorPayload, state::TargetState},
-  error::{GarageError, GarageResult},
+  error::GarageResult,
   mqtt_client::{CHANNEL_SIZE, MqttChannels},
 };
 
@@ -52,9 +52,12 @@ impl<'a> MqttReceiver<'a> {
           }
         }
 
+        EventPayload::Connected(_) => {
+          log::info!("MQTT connected");
+        }
+
         EventPayload::Disconnected => {
-          log::error!("MQTT disconnected");
-          return Err(GarageError::MqttClosed);
+          log::warn!("MQTT disconnected; waiting for reconnect");
         }
 
         _ => {}
