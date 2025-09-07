@@ -47,6 +47,8 @@ pub struct DoorConfig {
   pub state_topic: Cow<'static, str>,
   pub stuck_topic: Cow<'static, str>,
   #[serde(deserialize_with = "deserialize_duration_millis")]
+  pub sensor_debounce_duration: embassy_time::Duration,
+  #[serde(deserialize_with = "deserialize_duration_millis")]
   pub travel_duration: embassy_time::Duration,
   pub sensor_topic: Cow<'static, str>,
   pub max_attempts: u8,
@@ -88,6 +90,7 @@ stuck_topic = "garage/door/stuck"
 travel_duration = 30.0
 sensor_topic = "garage/door/sensor"
 max_attempts = 3
+sensor_debounce_duration = 1.5
 
 [door.remote]
 pressed_time = 0.5
@@ -116,6 +119,10 @@ wait_time = 1.0
     assert_eq!(
       config.door.remote.pressed_duration,
       embassy_time::Duration::from_millis(500)
+    );
+    assert_eq!(
+      config.door.sensor_debounce_duration,
+      embassy_time::Duration::from_millis(1_500)
     );
     assert_eq!(
       config.door.remote.wait_duration,

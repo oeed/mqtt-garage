@@ -106,8 +106,25 @@ impl<'a> Door<'a> {
       // determine what action is ready to be processed
       let action = select3(
         pin!(async {
-          let payload = self.sensor_receiver.receive().await;
-          payload.into_state()
+          // wait for the first reading
+          let mut candidate = self.sensor_receiver.receive().await.into_state();
+
+          // debounce the sensor state for 1.5 seconds
+          loop {
+            let next = select(
+              pin!(Timer::after(CONFIG.door.sensor_debounce_duration)),
+              pin!(async { self.sensor_receiver.receive().await }),
+            )
+            .await;
+
+            match next {
+              Either::First(_) => return candidate,
+              Either::Second(payload) => {
+                // update candidate and restart debounce window
+                candidate = payload.into_state();
+              }
+            }
+          }
         }),
         pin!(async {
           // wait for a state expiry to complete (e.g. assumedtravel time)
@@ -127,7 +144,7 @@ impl<'a> Door<'a> {
       match action {
         Either3::First(detected_state) => {
           // detected state changed
-          log::debug!(
+          log::info!(
             "Door detected state: {:?}, current state: {:?}",
             &detected_state,
             &self.current_state
@@ -142,7 +159,7 @@ impl<'a> Door<'a> {
             }
             (State::Closed | State::AttemptingOpen(_) | State::StuckClosed | State::StuckOpen, SensorState::Open) => {
               // door was stuck/closed but it's now open
-              log::debug!("Door was opened");
+              log::info!("Door was opened");
               self
                 .set_current_state(State::Opening(AssumedTravel::new(CONFIG.door.travel_duration)))
                 .await
@@ -152,7 +169,7 @@ impl<'a> Door<'a> {
               SensorState::Closed,
             ) => {
               // door was open/stuck/closing and it's now closed
-              log::debug!("Door was closed");
+              log::info!("Door was closed");
               self.set_current_state(State::Closed).await
             }
             _ => (), // no-op
@@ -168,7 +185,7 @@ impl<'a> Door<'a> {
                 // travel is still the current state at this point, so we can safely assume it hasn't completed
 
                 // we're going to try again
-                log::debug!("Door failed to move, triggering remote again");
+                log::info!("Door failed to move, triggering remote again");
                 self.remote.trigger().await?;
               }
               else {
@@ -185,7 +202,7 @@ impl<'a> Door<'a> {
             }
             State::Opening(_) => {
               // the assumed travel time has expired, mark it as being in the end state
-              log::debug!("Door open travel assumed complete");
+              log::info!("Door open travel assumed complete");
               self.set_current_state(State::Open).await;
             }
             State::Open | State::StuckOpen | State::Closed | State::StuckClosed => {
@@ -203,7 +220,7 @@ impl<'a> Door<'a> {
   }
 
   async fn set_current_state(&mut self, current_state: State) {
-    log::debug!("Door setting new state: {:?}", current_state);
+    log::info!("Door setting new state: {:?}", current_state);
     self.current_state = current_state;
     self.publish_current_state().await
   }
@@ -255,7 +272,7 @@ impl<'a> Door<'a> {
         }
       }
       // trigger the door
-      log::debug!("Door is now targeting state {}, triggering remote", target_state);
+      log::info!("Door is now targeting state {}, triggering remote", target_state);
       self.remote.trigger().await?;
     }
 

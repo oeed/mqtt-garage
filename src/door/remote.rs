@@ -25,6 +25,7 @@ impl<'a> DoorRemote<'a> {
     // NOTE: in future, if multiple doors/remotes are added, use a mutex when sending to prevent signal interference
     self.pin.set_high()?;
     self.rgb_led.on(colors::LIME);
+    log::info!("Waiting for timer to expire");
     let t0 = Instant::now();
     Timer::after(CONFIG.door.remote.pressed_duration).await;
     log::info!("Remote press window elapsed ({} ms)", t0.elapsed().as_millis());

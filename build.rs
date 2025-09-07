@@ -44,6 +44,7 @@ fn main() {
           state_topic: Cow::Borrowed("{door_state_topic}"),
           stuck_topic: Cow::Borrowed("{door_stuck_topic}"),
           travel_duration: embassy_time::Duration::from_millis({door_travel_duration_ms}),
+          sensor_debounce_duration: embassy_time::Duration::from_millis({door_sensor_debounce_duration_ms}),
           remote: RemoteConfig {{
               pressed_duration: embassy_time::Duration::from_millis({door_remote_pressed_time_ms}),
               wait_duration: embassy_time::Duration::from_millis({door_remote_wait_time_ms}),
@@ -72,6 +73,7 @@ fn main() {
     door_stuck_topic = config.door.stuck_topic,
     door_travel_duration_ms = config.door.travel_duration.as_millis(),
     door_initial_target_state = config.door.initial_target_state,
+    door_sensor_debounce_duration_ms = config.door.sensor_debounce_duration.as_millis(),
     // Door Remote
     door_remote_pressed_time_ms = config.door.remote.pressed_duration.as_millis(),
     door_remote_wait_time_ms = config.door.remote.wait_duration.as_millis(),
