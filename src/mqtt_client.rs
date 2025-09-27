@@ -18,11 +18,18 @@ mod receiver;
 
 const CHANNEL_SIZE: usize = 4;
 
+#[derive(Debug, Clone, Copy)]
+pub enum MqttConnectionState {
+  Connected,
+  Disconnected,
+}
+
 pub struct MqttChannels {
   /// The channel with which messages to send to MQTT are received on (from `MqttTopicPublisher`)
   publish_channel: Channel<NoopRawMutex, MqttPublish, CHANNEL_SIZE>, // TODO: need to assess whether the fixed limit will have issues
   sensor_channel: Channel<NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
   command_channel: Channel<NoopRawMutex, TargetState, CHANNEL_SIZE>,
+  connection_state_channel: Channel<NoopRawMutex, MqttConnectionState, CHANNEL_SIZE>,
 }
 
 impl MqttChannels {
@@ -31,6 +38,7 @@ impl MqttChannels {
       publish_channel: Channel::new(),
       sensor_channel: Channel::new(),
       command_channel: Channel::new(),
+      connection_state_channel: Channel::new(),
     }
   }
 

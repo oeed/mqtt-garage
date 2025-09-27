@@ -1,10 +1,19 @@
+use core::sync::atomic::Ordering;
+use std::pin::pin;
+
+use embassy_futures::select::{Either, select};
 use embassy_sync::{
   blocking_mutex::raw::NoopRawMutex,
   channel::{Receiver, Sender},
 };
 use esp_idf_svc::mqtt::client::{EspAsyncMqttClient, QoS};
 
-use crate::{config::CONFIG, error::GarageResult, mqtt_client::MqttChannels};
+use crate::{
+  config::CONFIG,
+  error::GarageResult,
+  health::{LAST_MQTT_TX_TICK_S, mark_section, now_secs, section},
+  mqtt_client::{MqttChannels, MqttConnectionState},
+};
 
 #[derive(Debug)]
 pub struct MqttPublish {
@@ -28,6 +37,7 @@ impl<'a> MqttTopicPublisher<'a> {
 pub struct MqttPublisher<'a> {
   client: EspAsyncMqttClient,
   receive_channel: Receiver<'a, NoopRawMutex, MqttPublish, 4>,
+  connection_state_channel: Receiver<'a, NoopRawMutex, MqttConnectionState, 4>,
 }
 
 impl<'a> MqttPublisher<'a> {
@@ -63,24 +73,44 @@ impl<'a> MqttPublisher<'a> {
 
   pub async fn send_messages(&mut self) -> GarageResult<()> {
     // send announce and subscribe messages first; if broker isn't ready yet, retry
+    self.on_connection_state_change(MqttConnectionState::Connected).await;
+
     loop {
-      match (self.announce().await, self.subscribe().await) {
-        (Ok(()), Ok(())) => break,
-        _ => {
-          log::warn!("MQTT announce/subscribe failed; retrying shortly");
-          embassy_time::Timer::after(embassy_time::Duration::from_millis(500)).await;
+      let result = select(
+        pin!(async { self.receive_channel.receive().await }),
+        pin!(async { self.connection_state_channel.receive().await }),
+      )
+      .await;
+
+      match result {
+        Either::First(publish) => {
+          if let Err(err) = self.publish(publish).await {
+            log::warn!("MQTT publish failed: {:?}; will retry announce/subscribe", err);
+            // attempt to re-announce and re-subscribe before continuing
+            let _ = self.announce().await;
+            let _ = self.subscribe().await;
+          }
+        }
+        Either::Second(connection_state) => {
+          self.on_connection_state_change(connection_state).await;
         }
       }
     }
+  }
 
-    loop {
-      let publish = self.receive_channel.receive().await;
-      if let Err(err) = self.publish(publish).await {
-        log::warn!("MQTT publish failed: {:?}; will retry announce/subscribe", err);
-        // attempt to re-announce and re-subscribe before continuing
-        let _ = self.announce().await;
-        let _ = self.subscribe().await;
-      }
+  async fn on_connection_state_change(&mut self, connection_state: MqttConnectionState) {
+    log::info!("MQTT connection state changed: {:?}", connection_state);
+    match connection_state {
+      MqttConnectionState::Connected => loop {
+        match (self.announce().await, self.subscribe().await) {
+          (Ok(()), Ok(())) => break,
+          _ => {
+            log::warn!("MQTT announce/subscribe failed; retrying shortly");
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(500)).await;
+          }
+        }
+      },
+      _ => (),
     }
   }
 

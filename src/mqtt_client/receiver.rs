@@ -10,7 +10,7 @@ use crate::{
   config::CONFIG,
   door::{SensorPayload, state::TargetState},
   error::GarageResult,
-  mqtt_client::{CHANNEL_SIZE, MqttChannels},
+  mqtt_client::{CHANNEL_SIZE, MqttChannels, MqttConnectionState},
 };
 
 
@@ -20,6 +20,7 @@ pub struct MqttReceiver<'a> {
   connection: EspAsyncMqttConnection,
   sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
   command_send_channel: Sender<'a, NoopRawMutex, TargetState, CHANNEL_SIZE>,
+  connection_state_send_channel: Sender<'a, NoopRawMutex, MqttConnectionState, CHANNEL_SIZE>,
 }
 
 impl<'a> MqttReceiver<'a> {
@@ -28,6 +29,7 @@ impl<'a> MqttReceiver<'a> {
       connection,
       sensor_send_channel: channels.sensor_channel.sender(),
       command_send_channel: channels.command_channel.sender(),
+      connection_state_send_channel: channels.connection_state_channel.sender(),
     }
   }
 
@@ -54,10 +56,18 @@ impl<'a> MqttReceiver<'a> {
 
         EventPayload::Connected(_) => {
           log::info!("MQTT connected");
+          self
+            .connection_state_send_channel
+            .send(MqttConnectionState::Connected)
+            .await;
         }
 
         EventPayload::Disconnected => {
           log::warn!("MQTT disconnected; waiting for reconnect");
+          self
+            .connection_state_send_channel
+            .send(MqttConnectionState::Disconnected)
+            .await;
         }
 
         _ => {}
