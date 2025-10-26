@@ -1,4 +1,3 @@
-use core::sync::atomic::Ordering;
 use std::pin::pin;
 
 use embassy_futures::select::{Either, select};
@@ -11,7 +10,6 @@ use esp_idf_svc::mqtt::client::{EspAsyncMqttClient, QoS};
 use crate::{
   config::CONFIG,
   error::GarageResult,
-  health::{LAST_MQTT_TX_TICK_S, mark_section, now_secs, section},
   mqtt_client::{MqttChannels, MqttConnectionState},
 };
 
@@ -50,30 +48,24 @@ impl<'a> MqttPublisher<'a> {
   }
 
   pub async fn publish(&mut self, publish: MqttPublish) -> GarageResult<()> {
-    LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
     let r = self
       .client
       .publish(publish.topic, publish.qos, publish.retain, publish.payload.as_bytes())
       .await;
-    LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
     r.map_err(|e| e.into()).map(|_| ())
   }
 
   pub async fn subscribe(&mut self) -> GarageResult<()> {
     log::info!("Subscribing to {}", CONFIG.door.sensor_topic);
-    LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
-    mark_section(section::MQTT_TX_SUBSCRIBE);
     let _ = self
       .client
       .subscribe(&CONFIG.door.sensor_topic, QoS::AtLeastOnce)
       .await?;
     log::info!("Subscribing to {}", CONFIG.door.command_topic);
-    LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
     self
       .client
       .subscribe(&CONFIG.door.command_topic, QoS::AtLeastOnce)
       .await?;
-    LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
 
     Ok(())
   }

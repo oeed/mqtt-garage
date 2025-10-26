@@ -33,10 +33,7 @@ pub mod rgb;
 pub mod wifi;
 
 
-use health::{
-  LAST_ASYNC_TICK_1S_S, LAST_ASYNC_TICK_S, LAST_DOOR_TICK_S, LAST_MQTT_RX_TICK_S, LAST_MQTT_TX_TICK_S, LAST_SECTION_ID,
-  LAST_TIMER_THREAD_TICK_S, init_baseline, last_section_age, now_secs, section_name,
-};
+use health::{LAST_ASYNC_TICK_1S_S, LAST_TIMER_THREAD_TICK_S, init_baseline, now_secs};
 
 #[embassy_executor::task]
 async fn timer_thread_heartbeat_task() {
@@ -56,47 +53,6 @@ async fn main(_spawner: Spawner) {
 
   // Initialize global monotonic baseline for health timestamps
   init_baseline();
-
-  // Global panic hook to log thread panics with last section info
-  std::panic::set_hook(Box::new(|info| {
-    let thread = std::thread::current();
-    let tname = thread.name().unwrap_or("unnamed");
-    let msg = info.to_string();
-    let loc = info
-      .location()
-      .map(|l| (l.file(), l.line()))
-      .unwrap_or(("<unknown>", 0));
-    let sid = LAST_SECTION_ID.load(Ordering::Relaxed);
-    log::error!(
-      "THREAD PANIC: thread={} at {}:{}; msg={}; last_section={} age={}s; ages: async1s={}s async5m={}s mqtt_rx={}s mqtt_tx={}s door={}s",
-      tname,
-      loc.0,
-      loc.1,
-      msg,
-      section_name(sid),
-      last_section_age(),
-      {
-        let v = LAST_ASYNC_TICK_1S_S.load(Ordering::Relaxed);
-        if v == 0 { u32::MAX } else { v }
-      },
-      {
-        let v = LAST_ASYNC_TICK_S.load(Ordering::Relaxed);
-        if v == 0 { u32::MAX } else { v }
-      },
-      {
-        let v = LAST_MQTT_RX_TICK_S.load(Ordering::Relaxed);
-        if v == 0 { u32::MAX } else { v }
-      },
-      {
-        let v = LAST_MQTT_TX_TICK_S.load(Ordering::Relaxed);
-        if v == 0 { u32::MAX } else { v }
-      },
-      {
-        let v = LAST_DOOR_TICK_S.load(Ordering::Relaxed);
-        if v == 0 { u32::MAX } else { v }
-      }
-    );
-  }));
 
   log::info!("Starting...");
 
@@ -118,11 +74,7 @@ async fn main(_spawner: Spawner) {
     .await?;
 
     // clear tickers
-    LAST_ASYNC_TICK_S.store(0, Ordering::Relaxed);
     LAST_ASYNC_TICK_1S_S.store(0, Ordering::Relaxed);
-    LAST_MQTT_RX_TICK_S.store(0, Ordering::Relaxed);
-    LAST_MQTT_TX_TICK_S.store(0, Ordering::Relaxed);
-    LAST_DOOR_TICK_S.store(0, Ordering::Relaxed);
     LAST_TIMER_THREAD_TICK_S.store(0, Ordering::Relaxed);
 
     log::info!("Reset reason: {:?}", ResetReason::get());
@@ -136,11 +88,6 @@ async fn main(_spawner: Spawner) {
         loop {
           std::thread::sleep(std::time::Duration::from_secs(20));
           counter = counter.wrapping_add(1);
-          let sid = LAST_SECTION_ID.load(Ordering::Relaxed);
-          if counter % 15 == 0 {
-            log::info!("Thread heartbeat  last_section={} age={}s", section_name(sid), last_section_age());
-          }
-
 
           let now_s = now_secs();
           let last_s = LAST_ASYNC_TICK_1S_S.load(Ordering::Relaxed);
@@ -150,15 +97,9 @@ async fn main(_spawner: Spawner) {
               if v == 0 { u32::MAX } else { now_s.saturating_sub(v) }
             };
             log::error!(
-              "Async stalled >3m; ages async5m={}s async1s={}s mqtt_rx={}s mqtt_tx={}s door={}s timer_thread={}s; last_section={} age={}s",
-              age(&LAST_ASYNC_TICK_S),
+              "Async stalled >3m; ages async1s={}s timer_thread={}s",
               age(&LAST_ASYNC_TICK_1S_S),
-              age(&LAST_MQTT_RX_TICK_S),
-              age(&LAST_MQTT_TX_TICK_S),
-              age(&LAST_DOOR_TICK_S),
               age(&LAST_TIMER_THREAD_TICK_S),
-              section_name(sid),
-              last_section_age(),
             );
             // wait to send log message before restarting
             std::thread::sleep(std::time::Duration::from_secs(1));
@@ -173,8 +114,7 @@ async fn main(_spawner: Spawner) {
     // spawn a separate Embassy executor on its own std thread to test timer wakeups
     {
       std::thread::spawn(|| {
-        let executor: &'static mut embassy_executor::Executor =
-          Box::leak(Box::new(embassy_executor::Executor::new()));
+        let executor: &'static mut embassy_executor::Executor = Box::leak(Box::new(embassy_executor::Executor::new()));
         executor.run(|spawner| {
           let _ = spawner.spawn(timer_thread_heartbeat_task());
         });
@@ -186,18 +126,8 @@ async fn main(_spawner: Spawner) {
     } = MqttClient::new(&mqtt_channels, &mut rgb_led).await?;
 
     let result = select4(
-      pin!(async move {
-        LAST_MQTT_RX_TICK_S.store(now_secs(), Ordering::Relaxed);
-        let r = mqtt_receiver.receive_messages().await;
-        LAST_MQTT_RX_TICK_S.store(now_secs(), Ordering::Relaxed);
-        r
-      }),
-      pin!(async move {
-        LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
-        let r = mqtt_publisher.send_messages().await;
-        LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
-        r
-      }),
+      pin!(async move { mqtt_receiver.receive_messages().await }),
+      pin!(async move { mqtt_publisher.send_messages().await }),
       pin!(async {
         Ok(
           Door::new(peripherals.pins.gpio14, &mqtt_channels, &mut rgb_led)
@@ -213,10 +143,6 @@ async fn main(_spawner: Spawner) {
           let now_s = now_secs();
           LAST_ASYNC_TICK_1S_S.store(now_s, Ordering::Relaxed);
           count = count.wrapping_add(1);
-          if count % 300 == 0 {
-            LAST_ASYNC_TICK_S.store(now_s, Ordering::Relaxed);
-            log::info!("Future heartbeat");
-          }
         }
         #[allow(unreachable_code)]
         Ok(())
