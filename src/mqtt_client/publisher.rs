@@ -56,16 +56,16 @@ impl<'a> MqttPublisher<'a> {
   }
 
   pub async fn subscribe(&mut self) -> GarageResult<()> {
-    log::info!("Subscribing to {}", CONFIG.door.sensor_topic);
-    let _ = self
-      .client
-      .subscribe(&CONFIG.door.sensor_topic, QoS::AtLeastOnce)
-      .await?;
-    log::info!("Subscribing to {}", CONFIG.door.command_topic);
-    self
-      .client
-      .subscribe(&CONFIG.door.command_topic, QoS::AtLeastOnce)
-      .await?;
+    let topics = [
+      &CONFIG.door.open_sensor_topic,
+      &CONFIG.door.closed_sensor_topic,
+      &CONFIG.door.command_topic,
+    ];
+
+    for topic in topics {
+      log::info!("Subscribing to {}", topic);
+      let _ = self.client.subscribe(topic, QoS::AtLeastOnce).await?;
+    }
 
     Ok(())
   }

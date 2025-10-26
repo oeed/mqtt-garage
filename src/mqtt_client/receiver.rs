@@ -18,7 +18,8 @@ pub type MqttTopicReceiver<'a, T> = Receiver<'a, NoopRawMutex, T, CHANNEL_SIZE>;
 
 pub struct MqttReceiver<'a> {
   connection: EspAsyncMqttConnection,
-  sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
+  open_sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
+  closed_sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
   command_send_channel: Sender<'a, NoopRawMutex, TargetState, CHANNEL_SIZE>,
   connection_state_send_channel: Sender<'a, NoopRawMutex, MqttConnectionState, CHANNEL_SIZE>,
 }
@@ -27,7 +28,8 @@ impl<'a> MqttReceiver<'a> {
   pub fn new(connection: EspAsyncMqttConnection, channels: &'a MqttChannels) -> MqttReceiver<'a> {
     MqttReceiver {
       connection,
-      sensor_send_channel: channels.sensor_channel.sender(),
+      open_sensor_send_channel: channels.open_sensor_channel.sender(),
+      closed_sensor_send_channel: channels.closed_sensor_channel.sender(),
       command_send_channel: channels.command_channel.sender(),
       connection_state_send_channel: channels.connection_state_channel.sender(),
     }
@@ -38,11 +40,17 @@ impl<'a> MqttReceiver<'a> {
       let event = self.connection.next().await?;
       match event.payload() {
         EventPayload::Received { topic, data, .. } => {
-          if topic == Some(&CONFIG.door.sensor_topic)
+          if topic == Some(&CONFIG.door.open_sensor_topic)
             && let Ok((payload, _)) = serde_json_core::from_slice(data)
           {
-            log::info!("Received sensor: {payload:?}");
-            self.sensor_send_channel.send(payload).await;
+            log::info!("Received open sensor: {payload:?}");
+            self.open_sensor_send_channel.send(payload).await;
+          }
+          else if topic == Some(&CONFIG.door.closed_sensor_topic)
+            && let Ok((payload, _)) = serde_json_core::from_slice(data)
+          {
+            log::info!("Received closed sensor: {payload:?}");
+            self.closed_sensor_send_channel.send(payload).await;
           }
           else if topic == Some(&CONFIG.door.command_topic)
             && let Ok(state) = str::from_utf8(data)

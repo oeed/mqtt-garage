@@ -2,7 +2,7 @@ use std::{fmt, pin::Pin, str::FromStr};
 
 use embassy_time::Timer;
 
-use crate::config::CONFIG;
+use crate::{config::CONFIG, door::SensorPayload};
 
 /// The state the door is trying to get to
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,27 +99,11 @@ impl ConfirmedTravel {
   }
 }
 
-/// Represents an assumed travel. Once complete we assume the door to be in the target state.
-pub struct AssumedTravel {
-  pub(crate) expiry: Pin<Box<Timer>>,
-}
-
-impl AssumedTravel {
-  pub fn new(duration: embassy_time::Duration) -> Self {
-    AssumedTravel {
-      expiry: Box::pin(Timer::after(duration)),
-    }
-  }
-
-  pub fn expiry_mut(&mut self) -> &mut Pin<Box<Timer>> {
-    &mut self.expiry
-  }
-}
-
 pub enum State {
   AttemptingOpen(ConfirmedTravel),
+  AttemptingClose(ConfirmedTravel),
   /// We have to assume when the door finished opening
-  Opening(AssumedTravel),
+  Opening(ConfirmedTravel),
   Open,
   StuckOpen,
   /// We can confirm when the door closes
@@ -133,7 +117,7 @@ impl State {
     match self {
       State::AttemptingOpen(_) | State::Opening(_) => "opening",
       State::Open | State::StuckOpen => "open",
-      State::Closing(_) => "closing",
+      State::AttemptingClose(_) | State::Closing(_) => "closing",
       State::Closed | State::StuckClosed => "closed",
     }
   }
@@ -143,6 +127,7 @@ impl fmt::Debug for State {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       State::AttemptingOpen(_) => write!(f, "AttemptingOpen"),
+      State::AttemptingClose(_) => write!(f, "AttemptingClose"),
       State::Opening(_) => write!(f, "Opening"),
       State::Open => write!(f, "Open"),
       State::StuckOpen => write!(f, "StuckOpen"),
@@ -159,6 +144,7 @@ impl From<SensorState> for State {
       SensorState::Open => State::Open,
       SensorState::Closed => State::Closed,
       SensorState::Stuck => State::Open,
+      SensorState::Moving => State::Open,
     }
   }
 }
@@ -175,22 +161,20 @@ impl From<TargetState> for State {
 impl State {
   pub fn confirmed_travel_mut(&mut self) -> Option<&mut ConfirmedTravel> {
     match self {
-      State::AttemptingOpen(travel) | State::Closing(travel) => Some(travel),
-      _ => None,
-    }
-  }
-
-  pub fn assumed_travel_mut(&mut self) -> Option<&mut AssumedTravel> {
-    match self {
-      State::Opening(travel) => Some(travel),
+      State::AttemptingOpen(travel)
+      | State::Opening(travel)
+      | State::AttemptingClose(travel)
+      | State::Closing(travel) => Some(travel),
       _ => None,
     }
   }
 
   pub fn expiry_mut(&mut self) -> Option<&mut Pin<Box<Timer>>> {
     match self {
-      State::Opening(travel) => Some(travel.expiry_mut()),
-      State::AttemptingOpen(travel) | State::Closing(travel) => Some(travel.expiry_mut()),
+      State::AttemptingOpen(travel)
+      | State::Opening(travel)
+      | State::AttemptingClose(travel)
+      | State::Closing(travel) => Some(travel.expiry_mut()),
       _ => None,
     }
   }
@@ -198,7 +182,7 @@ impl State {
   /// True if the state if opening or closing (i.e. in transition)
   pub fn is_travelling(&self) -> bool {
     match self {
-      State::Opening(..) | State::AttemptingOpen(..) | State::Closing(..) => true,
+      State::AttemptingOpen(..) | State::Opening(..) | State::AttemptingClose(..) | State::Closing(..) => true,
       _ => false,
     }
   }
@@ -218,8 +202,23 @@ impl State {
 pub enum SensorState {
   Open,
   Closed,
+  Moving,
   /// Used for invalid payload too
   Stuck,
+}
+
+impl SensorState {
+  pub fn from_sensors(open_sensor: SensorPayload, closed_sensor: SensorPayload) -> Self {
+    if open_sensor.contact {
+      SensorState::Open
+    }
+    else if closed_sensor.contact {
+      SensorState::Closed
+    }
+    else {
+      SensorState::Moving
+    }
+  }
 }
 
 

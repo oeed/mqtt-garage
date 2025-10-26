@@ -12,7 +12,7 @@ use self::{
 };
 use crate::{
   config::CONFIG,
-  door::state::{AssumedTravel, ConfirmedTravel},
+  door::state::ConfirmedTravel,
   error::{GarageError, GarageResult},
   mqtt_client::{MqttChannels, MqttPublish, MqttTopicPublisher, MqttTopicReceiver},
   rgb::RgbLed,
@@ -23,45 +23,49 @@ pub mod state;
 
 pub struct Door<'a> {
   publisher: MqttTopicPublisher<'a>,
-  sensor_receiver: MqttTopicReceiver<'a, SensorPayload>,
+  /// Sensor for the top (i.e. on contact, the door is open)
+  open_sensor_receiver: MqttTopicReceiver<'a, SensorPayload>,
+  /// Sensor for the bottom (i.e. on contact, the door is closed)
+  closed_sensor_receiver: MqttTopicReceiver<'a, SensorPayload>,
   command_receiver: MqttTopicReceiver<'a, TargetState>,
+
+  last_open_sensor: SensorPayload,
+  last_closed_sensor: SensorPayload,
 
   remote: DoorRemote<'a>,
   current_state: State,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone, Copy)]
 pub struct SensorPayload {
   /// `true` if closed
   contact: bool,
 }
 
-impl SensorPayload {
-  pub fn into_state(self) -> SensorState {
-    if self.contact {
-      SensorState::Closed
-    }
-    else {
-      SensorState::Open
-    }
-  }
-}
-
 impl<'a> Door<'a> {
   pub async fn new(gpio: Gpio14, mqtt_channels: &'a MqttChannels, rgb_led: &'a mut RgbLed) -> GarageResult<Door<'a>> {
-    let sensor_receiver = mqtt_channels.sensor_receiver();
+    let open_sensor_receiver = mqtt_channels.open_sensor_receiver();
+    let closed_sensor_receiver = mqtt_channels.closed_sensor_receiver();
 
     log::info!("Getting initial state from sensor");
 
     rgb_led.on(colors::YELLOW);
     let initial_state = select(
-      pin!(async move { sensor_receiver.receive().await.into_state() }),
+      pin!(async move {
+        let open_sensor = open_sensor_receiver.receive().await;
+        let closed_sensor = closed_sensor_receiver.receive().await;
+        (
+          SensorState::from_sensors(open_sensor, closed_sensor),
+          open_sensor,
+          closed_sensor,
+        )
+      }),
       pin!(Timer::after(embassy_time::Duration::from_secs(10))),
     )
     .await;
     rgb_led.off();
 
-    let initial_state = match initial_state {
+    let (initial_state, last_open_sensor, last_closed_sensor) = match initial_state {
       Either::First(state) => state,
       Either::Second(_) => return Err(GarageError::DoorInitialisationTimeout),
     };
@@ -72,8 +76,11 @@ impl<'a> Door<'a> {
     let mut door = Door {
       publisher: mqtt_channels.publisher(),
       command_receiver: mqtt_channels.command_receiver(),
-      sensor_receiver,
+      open_sensor_receiver,
+      closed_sensor_receiver,
       current_state: initial_state.into(),
+      last_open_sensor,
+      last_closed_sensor,
       remote,
     };
 
@@ -106,28 +113,25 @@ impl<'a> Door<'a> {
       // determine what action is ready to be processed
       let action = select3(
         pin!(async {
-          // wait for the first reading
-          let mut candidate = self.sensor_receiver.receive().await.into_state();
+          let action = select(
+            pin!(async { self.open_sensor_receiver.receive().await }),
+            pin!(async { self.closed_sensor_receiver.receive().await }),
+          )
+          .await;
 
-          // debounce the sensor state for 1.5 seconds
-          loop {
-            let next = select(
-              pin!(Timer::after(CONFIG.door.sensor_debounce_duration)),
-              pin!(async { self.sensor_receiver.receive().await }),
-            )
-            .await;
-
-            match next {
-              Either::First(_) => return candidate,
-              Either::Second(payload) => {
-                // update candidate and restart debounce window
-                candidate = payload.into_state();
-              }
+          match action {
+            Either::First(open_sensor) => {
+              self.last_open_sensor = open_sensor;
+            }
+            Either::Second(closed_sensor) => {
+              self.last_closed_sensor = closed_sensor;
             }
           }
+
+          SensorState::from_sensors(self.last_open_sensor, self.last_closed_sensor)
         }),
         pin!(async {
-          // wait for a state expiry to complete (e.g. assumedtravel time)
+          // wait for a state expiry to complete (e.g. travel time)
           if let Some(expiry) = self.current_state.expiry_mut() {
             expiry.await;
           }
@@ -151,34 +155,55 @@ impl<'a> Door<'a> {
           );
 
           match (&self.current_state, detected_state) {
-            (State::Closed | State::AttemptingOpen(_), SensorState::Stuck) => {
+            (State::Closed | State::Opening(_) | State::AttemptingOpen(_), SensorState::Stuck) => {
               self.set_current_state(State::StuckClosed).await
             }
-            (State::Open | State::Opening(_) | State::Closing(_), SensorState::Stuck) => {
+            (State::Open | State::AttemptingClose(_) | State::Closing(_), SensorState::Stuck) => {
               self.set_current_state(State::StuckOpen).await
             }
-            (State::Closed | State::AttemptingOpen(_) | State::StuckClosed | State::StuckOpen, SensorState::Open) => {
-              // door was stuck/closed but it's now open
-              log::info!("Door was opened");
+
+            (State::Closed | State::AttemptingOpen(_) | State::StuckClosed, SensorState::Moving) => {
+              // door was stuck/closed but it's now opening
+              log::info!("Door was detected now opening");
               self
-                .set_current_state(State::Opening(AssumedTravel::new(CONFIG.door.travel_duration)))
+                .set_current_state(State::Opening(ConfirmedTravel::new(CONFIG.door.travel_duration)))
                 .await
             }
+            (State::Open | State::AttemptingClose(_) | State::StuckOpen, SensorState::Moving) => {
+              // door was stuck/open but it's now closing
+              log::info!("Door was detected now closing");
+              self
+                .set_current_state(State::Closing(ConfirmedTravel::new(CONFIG.door.travel_duration)))
+                .await
+            }
+
             (
-              State::Open | State::Closing(_) | State::StuckClosed | State::StuckOpen | State::Opening(_),
+              State::Closed | State::AttemptingOpen(_) | State::Opening(_) | State::StuckClosed | State::StuckOpen,
+              SensorState::Open,
+            ) => {
+              // door was closed/stuck/opening and it's now open
+              log::info!("Door was opened");
+              self.set_current_state(State::Open).await
+            }
+            (
+              State::Open | State::AttemptingClose(_) | State::Closing(_) | State::StuckClosed | State::StuckOpen,
               SensorState::Closed,
             ) => {
               // door was open/stuck/closing and it's now closed
               log::info!("Door was closed");
               self.set_current_state(State::Closed).await
             }
+
             _ => (), // no-op
           }
         }
         Either3::Second(()) => {
           // expiry resolved
           match &mut self.current_state {
-            State::AttemptingOpen(confirmed_travel) | State::Closing(confirmed_travel) => {
+            State::AttemptingOpen(confirmed_travel)
+            | State::Opening(confirmed_travel)
+            | State::AttemptingClose(confirmed_travel)
+            | State::Closing(confirmed_travel) => {
               // the door didn't open/close as it was requested to
               if confirmed_travel.reattempt().is_ok() {
                 // the travel expired, i.e. the door didn't move in to place before it should have
@@ -193,17 +218,12 @@ impl<'a> Door<'a> {
                 log::info!("Door failed to move after maximum attemps, marking as stuck");
                 match self.current_state {
                   // Attempting to open but failed => stuck closed
-                  State::AttemptingOpen(_) => self.set_current_state(State::StuckClosed).await,
+                  State::AttemptingOpen(_) | State::Opening(_) => self.set_current_state(State::StuckClosed).await,
                   // Attempting to close but failed => stuck open
-                  State::Closing(_) => self.set_current_state(State::StuckOpen).await,
+                  State::AttemptingClose(_) | State::Closing(_) => self.set_current_state(State::StuckOpen).await,
                   _ => unreachable!(),
                 }
               }
-            }
-            State::Opening(_) => {
-              // the assumed travel time has expired, mark it as being in the end state
-              log::info!("Door open travel assumed complete");
-              self.set_current_state(State::Open).await;
             }
             State::Open | State::StuckOpen | State::Closed | State::StuckClosed => {
               unreachable!("state should not have an expiry")
@@ -257,7 +277,11 @@ impl<'a> Door<'a> {
         TargetState::Closed => {
           // because we can't be for sure if the door actually moves from the open state, we assume it's closing
           self
-            .set_current_state(State::Closing(ConfirmedTravel::new(CONFIG.door.travel_duration)))
+            .set_current_state(State::AttemptingClose(ConfirmedTravel::new(
+              CONFIG.door.remote.max_latency_duration
+                + CONFIG.door.remote.pressed_duration
+                + CONFIG.door.remote.wait_duration,
+            )))
             .await;
         }
         TargetState::Open => {

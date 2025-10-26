@@ -44,13 +44,13 @@ fn main() {
           state_topic: Cow::Borrowed("{door_state_topic}"),
           stuck_topic: Cow::Borrowed("{door_stuck_topic}"),
           travel_duration: embassy_time::Duration::from_millis({door_travel_duration_ms}),
-          sensor_debounce_duration: embassy_time::Duration::from_millis({door_sensor_debounce_duration_ms}),
           remote: RemoteConfig {{
               pressed_duration: embassy_time::Duration::from_millis({door_remote_pressed_time_ms}),
               wait_duration: embassy_time::Duration::from_millis({door_remote_wait_time_ms}),
               max_latency_duration: embassy_time::Duration::from_millis({door_remote_max_latency_duration_ms}),
           }},
-          sensor_topic: Cow::Borrowed("{door_detector_sensor_topic}"),
+          open_sensor_topic: Cow::Borrowed("{door_open_sensor_topic}"),
+          closed_sensor_topic: Cow::Borrowed("{door_closed_sensor_topic}"),
           max_attempts: {door_max_attempts},
         }},
       }};
@@ -73,13 +73,13 @@ fn main() {
     door_stuck_topic = config.door.stuck_topic,
     door_travel_duration_ms = config.door.travel_duration.as_millis(),
     door_initial_target_state = config.door.initial_target_state,
-    door_sensor_debounce_duration_ms = config.door.sensor_debounce_duration.as_millis(),
     // Door Remote
     door_remote_pressed_time_ms = config.door.remote.pressed_duration.as_millis(),
     door_remote_wait_time_ms = config.door.remote.wait_duration.as_millis(),
     door_remote_max_latency_duration_ms = config.door.remote.max_latency_duration.as_millis(),
     // Door Detector
-    door_detector_sensor_topic = config.door.sensor_topic,
+    door_open_sensor_topic = config.door.open_sensor_topic,
+    door_closed_sensor_topic = config.door.closed_sensor_topic,
     door_max_attempts = config.door.max_attempts,
   );
 

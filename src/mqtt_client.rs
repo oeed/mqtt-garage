@@ -27,7 +27,8 @@ pub enum MqttConnectionState {
 pub struct MqttChannels {
   /// The channel with which messages to send to MQTT are received on (from `MqttTopicPublisher`)
   publish_channel: Channel<NoopRawMutex, MqttPublish, CHANNEL_SIZE>, // TODO: need to assess whether the fixed limit will have issues
-  sensor_channel: Channel<NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
+  open_sensor_channel: Channel<NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
+  closed_sensor_channel: Channel<NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
   command_channel: Channel<NoopRawMutex, TargetState, CHANNEL_SIZE>,
   connection_state_channel: Channel<NoopRawMutex, MqttConnectionState, CHANNEL_SIZE>,
 }
@@ -36,7 +37,8 @@ impl MqttChannels {
   pub fn new() -> MqttChannels {
     MqttChannels {
       publish_channel: Channel::new(),
-      sensor_channel: Channel::new(),
+      open_sensor_channel: Channel::new(),
+      closed_sensor_channel: Channel::new(),
       command_channel: Channel::new(),
       connection_state_channel: Channel::new(),
     }
@@ -48,8 +50,12 @@ impl MqttChannels {
     }
   }
 
-  pub fn sensor_receiver(&self) -> MqttTopicReceiver<'_, SensorPayload> {
-    self.sensor_channel.receiver()
+  pub fn open_sensor_receiver(&self) -> MqttTopicReceiver<'_, SensorPayload> {
+    self.open_sensor_channel.receiver()
+  }
+
+  pub fn closed_sensor_receiver(&self) -> MqttTopicReceiver<'_, SensorPayload> {
+    self.closed_sensor_channel.receiver()
   }
 
   pub fn command_receiver(&self) -> MqttTopicReceiver<'_, TargetState> {
