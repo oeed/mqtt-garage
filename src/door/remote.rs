@@ -21,20 +21,20 @@ impl<'a> DoorRemote<'a> {
 
   /// Trigger the remote to send the open/close signal
   pub async fn trigger(&mut self) -> GarageResult<()> {
-    log::info!("Triggering remote");
+    log::debug!("Triggering remote");
     // NOTE: in future, if multiple doors/remotes are added, use a mutex when sending to prevent signal interference
     self.pin.set_high()?;
     self.rgb_led.on(colors::LIME);
-    log::info!("Waiting for timer to expire");
+    log::debug!("Waiting for timer to expire");
     let t0 = Instant::now();
     Timer::after(CONFIG.door.remote.pressed_duration).await;
-    log::info!("Remote press window elapsed ({} ms)", t0.elapsed().as_millis());
-    log::info!("Releasing remote");
+    log::debug!("Remote press window elapsed ({} ms)", t0.elapsed().as_millis());
+    log::debug!("Releasing remote");
     self.pin.set_low()?;
     self.rgb_led.off();
     let t1 = Instant::now();
     Timer::after(CONFIG.door.remote.wait_duration).await;
-    log::info!("Post-press settle elapsed ({} ms)", t1.elapsed().as_millis());
+    log::debug!("Post-press settle elapsed ({} ms)", t1.elapsed().as_millis());
     Ok(())
   }
 }

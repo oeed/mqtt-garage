@@ -1,12 +1,7 @@
-use std::net::SocketAddrV4;
-
 use embedded_svc::wifi::{self, AuthMethod, Configuration};
 use esp_idf_svc::{
   eventloop::EspSystemEventLoop,
-  hal::{
-    modem::Modem,
-    reset::{ResetReason, WakeupReason},
-  },
+  hal::modem::Modem,
   ipv4::{self, DHCPClientSettings},
   netif::{EspNetif, NetifConfiguration, NetifStack},
   nvs::EspDefaultNvsPartition,
@@ -87,57 +82,21 @@ impl Wifi {
 
     log::info!("Wifi DHCP info: {ip_info:?}");
 
-    // #[cfg(not(debug_assertions))]
     {
-      use esp_syslog::{BasicLogger, Facility, Formatter3164};
       use log::LevelFilter;
+      use syslog_esp32::{Facility, init_udp_ipv4};
 
-      use crate::config::CONFIG;
-
-      let formatter = Formatter3164 {
-        facility: Facility::LOG_USER,
-        process: "mqtt-garage".into(),
-        pid: 0,
-      };
-
-      let logger = esp_syslog::udp(
-        formatter,
-        SocketAddrV4::new(ip_info.ip, 4000),
-        CONFIG.wifi.syslog_server,
+      let result = init_udp_ipv4(
+        Some(&CONFIG.wifi.hostname),
+        "mqtt-garage",
+        Facility::LOG_USER,
+        LevelFilter::Info,
+        CONFIG.wifi.syslog_server.into(),
       );
 
-
-      if let Ok(logger) = logger {
-        log::set_boxed_logger(Box::new(BasicLogger::new(logger)))
-          .map(|()| log::set_max_level(LevelFilter::Info))
-          .ok();
-        esp_syslog::set_network_available();
+      if let Err(err) = result {
+        log::error!("Failed to initialize syslog: {:?}", err);
       }
-
-      // If a previous run crashed and a core dump was saved to flash,
-      // retrieve its flash address/size, log summary, then erase it.
-      unsafe {
-        use esp_idf_svc::sys;
-        if sys::esp_core_dump_image_check() == sys::ESP_OK as i32 {
-          let mut flash_addr: usize = 0;
-          let mut flash_size: usize = 0;
-          let rc = sys::esp_core_dump_image_get(&mut flash_addr as *mut usize, &mut flash_size as *mut usize);
-          if rc == sys::ESP_OK as i32 && flash_size > 0 {
-            log::warn!(
-              "Core dump present at flash 0x{:X}, size {} bytes",
-              flash_addr,
-              flash_size
-            );
-          }
-          else {
-            log::warn!("Core dump present but could not get address/size (rc={})", rc);
-          }
-          let _ = sys::esp_core_dump_image_erase();
-        }
-      }
-
-      log::info!("Reset reason: {:?}", ResetReason::get());
-      log::info!("Wakeup reason: {:?}", WakeupReason::get());
     }
 
     Ok(Wifi { wifi })

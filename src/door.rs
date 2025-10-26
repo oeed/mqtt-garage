@@ -1,3 +1,4 @@
+use core::sync::atomic::Ordering;
 use std::{future, pin::pin, str::FromStr};
 
 use embassy_futures::select::{Either, Either3, select, select3};
@@ -14,6 +15,7 @@ use crate::{
   config::CONFIG,
   door::state::{AssumedTravel, ConfirmedTravel},
   error::{GarageError, GarageResult},
+  health::{LAST_DOOR_TICK_S, now_secs},
   mqtt_client::{MqttChannels, MqttPublish, MqttTopicPublisher, MqttTopicReceiver},
   rgb::RgbLed,
 };
@@ -49,6 +51,7 @@ impl SensorPayload {
 
 impl<'a> Door<'a> {
   pub async fn new(gpio: Gpio14, mqtt_channels: &'a MqttChannels, rgb_led: &'a mut RgbLed) -> GarageResult<Door<'a>> {
+    LAST_DOOR_TICK_S.store(now_secs(), Ordering::Relaxed);
     let sensor_receiver = mqtt_channels.sensor_receiver();
 
     log::info!("Getting initial state from sensor");
@@ -78,6 +81,7 @@ impl<'a> Door<'a> {
     };
 
     door.publish_current_state().await;
+    LAST_DOOR_TICK_S.store(now_secs(), Ordering::Relaxed);
 
     let initial_target_state =
       TargetState::from_str(&CONFIG.door.initial_target_state).expect("Invalid initial_target_state");
@@ -90,6 +94,7 @@ impl<'a> Door<'a> {
     let mut next_target_state: Option<TargetState> = None;
 
     log::info!("Door listening with initial state: {:?}", self.current_state);
+    LAST_DOOR_TICK_S.store(now_secs(), Ordering::Relaxed);
     // let result: GarageResult<()> =
     loop {
       // if there was a queued next state, and we're not travelling, move to it
@@ -141,6 +146,7 @@ impl<'a> Door<'a> {
       .await;
 
       // process the action
+      LAST_DOOR_TICK_S.store(now_secs(), Ordering::Relaxed);
       match action {
         Either3::First(detected_state) => {
           // detected state changed
@@ -187,6 +193,7 @@ impl<'a> Door<'a> {
                 // we're going to try again
                 log::info!("Door failed to move, triggering remote again");
                 self.remote.trigger().await?;
+                LAST_DOOR_TICK_S.store(now_secs(), Ordering::Relaxed);
               }
               else {
                 // we've tried too many times
@@ -204,6 +211,7 @@ impl<'a> Door<'a> {
               // the assumed travel time has expired, mark it as being in the end state
               log::info!("Door open travel assumed complete");
               self.set_current_state(State::Open).await;
+              LAST_DOOR_TICK_S.store(now_secs(), Ordering::Relaxed);
             }
             State::Open | State::StuckOpen | State::Closed | State::StuckClosed => {
               unreachable!("state should not have an expiry")
@@ -214,6 +222,7 @@ impl<'a> Door<'a> {
           // command received
           log::info!("Next target state: {:?}", target_state);
           next_target_state = Some(target_state);
+          LAST_DOOR_TICK_S.store(now_secs(), Ordering::Relaxed);
         }
       }
     }

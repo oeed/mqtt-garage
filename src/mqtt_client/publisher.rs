@@ -45,28 +45,35 @@ impl<'a> MqttPublisher<'a> {
     MqttPublisher {
       client,
       receive_channel: channels.publish_channel.receiver(),
+      connection_state_channel: channels.connection_state_channel.receiver(),
     }
   }
 
   pub async fn publish(&mut self, publish: MqttPublish) -> GarageResult<()> {
-    self
+    LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
+    let r = self
       .client
       .publish(publish.topic, publish.qos, publish.retain, publish.payload.as_bytes())
-      .await?;
-    Ok(())
+      .await;
+    LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
+    r.map_err(|e| e.into()).map(|_| ())
   }
 
   pub async fn subscribe(&mut self) -> GarageResult<()> {
     log::info!("Subscribing to {}", CONFIG.door.sensor_topic);
-    self
+    LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
+    mark_section(section::MQTT_TX_SUBSCRIBE);
+    let _ = self
       .client
       .subscribe(&CONFIG.door.sensor_topic, QoS::AtLeastOnce)
       .await?;
     log::info!("Subscribing to {}", CONFIG.door.command_topic);
+    LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
     self
       .client
       .subscribe(&CONFIG.door.command_topic, QoS::AtLeastOnce)
       .await?;
+    LAST_MQTT_TX_TICK_S.store(now_secs(), Ordering::Relaxed);
 
     Ok(())
   }

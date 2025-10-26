@@ -503,9 +503,9 @@ dependencies = [
 
 [[package]]
 name = "embassy-time-driver"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d45f5d833b6d98bd2aab0c2de70b18bfaa10faf661a1578fd8e5dfb15eb7eba"
+checksum = "a0a244c7dc22c8d0289379c8d8830cae06bb93d8f990194d0de5efb3b5ae7ba6"
 dependencies = [
  "document-features",
 ]
@@ -684,15 +684,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "error-chain"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d2f06b9cac1506ece98fe3231e3cc9c4410ec3d5b1f24ae1c8946f0742cdefc"
-dependencies = [
- "version_check",
-]
-
-[[package]]
 name = "esp-idf-hal"
 version = "0.45.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -755,18 +746,6 @@ dependencies = [
  "serde",
  "strum 0.24.1",
  "which",
-]
-
-[[package]]
-name = "esp_syslog"
-version = "6.1.0"
-source = "git+https://github.com/oeed/rust-syslog-esp32#b568260053cc8f081e5912780d07287e42c4978b"
-dependencies = [
- "embuild 0.33.1",
- "error-chain",
- "esp-idf-svc",
- "log",
- "time",
 ]
 
 [[package]]
@@ -1082,11 +1061,11 @@ dependencies = [
  "embedded-svc",
  "embuild 0.33.1",
  "esp-idf-svc",
- "esp_syslog",
  "log",
  "serde",
  "serde-json-core",
  "smart-leds",
+ "syslog_esp32",
  "thiserror 1.0.58",
  "toml 0.9.4",
  "ws2812-esp32-rmt-driver",
@@ -1173,15 +1152,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
-]
-
-[[package]]
-name = "num_threads"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
-dependencies = [
- "libc",
 ]
 
 [[package]]
@@ -1566,6 +1536,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "syslog_esp32"
+version = "7.0.0"
+source = "git+https://github.com/oeed/rust-syslog-esp32#f0d3d4b9e52968f9ce511394c8d77ad5fbc3ed2e"
+dependencies = [
+ "esp-idf-svc",
+ "log",
+ "time",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1626,9 +1606,7 @@ checksum = "8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40"
 dependencies = [
  "deranged",
  "itoa",
- "libc",
  "num-conv",
- "num_threads",
  "powerfmt",
  "serde",
  "time-core",
