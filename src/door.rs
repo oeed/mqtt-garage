@@ -1,6 +1,6 @@
 use std::{future, pin::pin, str::FromStr};
 
-use embassy_futures::select::{Either, Either3, select, select3};
+use embassy_futures::select::{Either, Either3, Either4, select, select3, select4};
 use embassy_time::Timer;
 use esp_idf_svc::{hal::gpio::Gpio14, mqtt::client::QoS};
 use serde::Deserialize;
@@ -28,9 +28,12 @@ pub struct Door<'a> {
   /// Sensor for the bottom (i.e. on contact, the door is closed)
   closed_sensor_receiver: MqttTopicReceiver<'a, SensorPayload>,
   command_receiver: MqttTopicReceiver<'a, TargetState>,
+  safe_to_close_receiver: MqttTopicReceiver<'a, bool>,
 
   last_open_sensor: SensorPayload,
   last_closed_sensor: SensorPayload,
+  /// Whether it is currently safe to close the door. Defaults to `true` until told otherwise.
+  safe_to_close: bool,
 
   remote: DoorRemote<'a>,
   current_state: State,
@@ -46,6 +49,7 @@ impl<'a> Door<'a> {
   pub async fn new(gpio: Gpio14, mqtt_channels: &'a MqttChannels, rgb_led: &'a mut RgbLed) -> GarageResult<Door<'a>> {
     let open_sensor_receiver = mqtt_channels.open_sensor_receiver();
     let closed_sensor_receiver = mqtt_channels.closed_sensor_receiver();
+    let safe_to_close_receiver = mqtt_channels.safe_to_close_receiver();
 
     log::info!("Getting initial state from sensor");
 
@@ -76,11 +80,13 @@ impl<'a> Door<'a> {
     let mut door = Door {
       publisher: mqtt_channels.publisher(),
       command_receiver: mqtt_channels.command_receiver(),
+      safe_to_close_receiver,
       open_sensor_receiver,
       closed_sensor_receiver,
       current_state: initial_state.into(),
       last_open_sensor,
       last_closed_sensor,
+      safe_to_close: true,
       remote,
     };
 
@@ -111,7 +117,7 @@ impl<'a> Door<'a> {
 
 
       // determine what action is ready to be processed
-      let action = select3(
+      let action = select4(
         pin!(async {
           let action = select(
             pin!(async { self.open_sensor_receiver.receive().await }),
@@ -141,12 +147,13 @@ impl<'a> Door<'a> {
           }
         }),
         pin!(async { self.command_receiver.receive().await }),
+        pin!(async { self.safe_to_close_receiver.receive().await }),
       )
       .await;
 
       // process the action
       match action {
-        Either3::First(detected_state) => {
+        Either4::First(detected_state) => {
           // detected state changed
           log::info!(
             "Door detected state: {:?}, current state: {:?}",
@@ -197,7 +204,7 @@ impl<'a> Door<'a> {
             _ => (), // no-op
           }
         }
-        Either3::Second(()) => {
+        Either4::Second(()) => {
           // expiry resolved
           match &mut self.current_state {
             State::AttemptingOpen(confirmed_travel)
@@ -230,10 +237,19 @@ impl<'a> Door<'a> {
             }
           }
         }
-        Either3::Third(target_state) => {
+        Either4::Third(target_state) => {
           // command received
-          log::info!("Next target state: {:?}", target_state);
-          next_target_state = Some(target_state);
+          if target_state == TargetState::Closed && !self.safe_to_close {
+            log::warn!("Ignoring close command: not safe to close");
+          }
+          else {
+            log::info!("Next target state: {:?}", target_state);
+            next_target_state = Some(target_state);
+          }
+        }
+        Either4::Fourth(safe_to_close) => {
+          log::info!("Safe to close updated: {}", safe_to_close);
+          self.safe_to_close = safe_to_close;
         }
       }
     }
@@ -275,7 +291,7 @@ impl<'a> Door<'a> {
       // we're not in our target state, transition to travelling and trigger the door
       match target_state {
         TargetState::Closed => {
-          // because we can't be for sure if the door actually moves from the open state, we assume it's closing
+          // we can detect if the door starts to close, so ensure it does
           self
             .set_current_state(State::AttemptingClose(ConfirmedTravel::new(
               CONFIG.door.remote.max_latency_duration

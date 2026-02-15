@@ -43,6 +43,7 @@ fn main() {
           initial_target_state: Cow::Borrowed("{door_initial_target_state}"),
           state_topic: Cow::Borrowed("{door_state_topic}"),
           stuck_topic: Cow::Borrowed("{door_stuck_topic}"),
+          safe_to_close_topic: Cow::Borrowed("{door_safe_to_close_topic}"),
           travel_duration: embassy_time::Duration::from_millis({door_travel_duration_ms}),
           remote: RemoteConfig {{
               pressed_duration: embassy_time::Duration::from_millis({door_remote_pressed_time_ms}),
@@ -71,6 +72,7 @@ fn main() {
     door_cmd_topic = config.door.command_topic,
     door_state_topic = config.door.state_topic,
     door_stuck_topic = config.door.stuck_topic,
+    door_safe_to_close_topic = config.door.safe_to_close_topic,
     door_travel_duration_ms = config.door.travel_duration.as_millis(),
     door_initial_target_state = config.door.initial_target_state,
     // Door Remote

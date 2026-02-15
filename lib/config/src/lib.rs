@@ -50,6 +50,7 @@ pub struct DoorConfig {
   pub travel_duration: embassy_time::Duration,
   pub open_sensor_topic: Cow<'static, str>,
   pub closed_sensor_topic: Cow<'static, str>,
+  pub safe_to_close_topic: Cow<'static, str>,
   pub max_attempts: u8,
 }
 
@@ -89,6 +90,7 @@ stuck_topic = "garage/door/stuck"
 travel_duration = 30.0
 open_sensor_topic = "garage/door/open_sensor"
 closed_sensor_topic = "garage/door/closed_sensor"
+safe_to_close_topic = "garage/door/safe_to_close" 
 max_attempts = 3
 
 [door.remote]
@@ -114,6 +116,7 @@ wait_time = 1.0
     assert_eq!(config.door.travel_duration, embassy_time::Duration::from_millis(30_000));
     assert_eq!(config.door.open_sensor_topic, "garage/door/open_sensor");
     assert_eq!(config.door.closed_sensor_topic, "garage/door/closed_sensor");
+    assert_eq!(config.door.safe_to_close_topic, "garage/door/safe_to_close");
     assert_eq!(config.door.max_attempts, 3);
 
     assert_eq!(

@@ -21,6 +21,7 @@ pub struct MqttReceiver<'a> {
   open_sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
   closed_sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
   command_send_channel: Sender<'a, NoopRawMutex, TargetState, CHANNEL_SIZE>,
+  safe_to_close_send_channel: Sender<'a, NoopRawMutex, bool, CHANNEL_SIZE>,
   connection_state_send_channel: Sender<'a, NoopRawMutex, MqttConnectionState, CHANNEL_SIZE>,
 }
 
@@ -31,6 +32,7 @@ impl<'a> MqttReceiver<'a> {
       open_sensor_send_channel: channels.open_sensor_channel.sender(),
       closed_sensor_send_channel: channels.closed_sensor_channel.sender(),
       command_send_channel: channels.command_channel.sender(),
+      safe_to_close_send_channel: channels.safe_to_close_channel.sender(),
       connection_state_send_channel: channels.connection_state_channel.sender(),
     }
   }
@@ -59,6 +61,13 @@ impl<'a> MqttReceiver<'a> {
           {
             log::info!("Received command: {state}");
             self.command_send_channel.send(state).await;
+          }
+          else if topic == Some(&CONFIG.door.safe_to_close_topic)
+            && let Ok(value) = str::from_utf8(data)
+          {
+            let safe = value == "true";
+            log::info!("Received safe_to_close: {safe}");
+            self.safe_to_close_send_channel.send(safe).await;
           }
         }
 

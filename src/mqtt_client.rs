@@ -30,6 +30,7 @@ pub struct MqttChannels {
   open_sensor_channel: Channel<NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
   closed_sensor_channel: Channel<NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
   command_channel: Channel<NoopRawMutex, TargetState, CHANNEL_SIZE>,
+  safe_to_close_channel: Channel<NoopRawMutex, bool, CHANNEL_SIZE>,
   connection_state_channel: Channel<NoopRawMutex, MqttConnectionState, CHANNEL_SIZE>,
 }
 
@@ -40,6 +41,7 @@ impl MqttChannels {
       open_sensor_channel: Channel::new(),
       closed_sensor_channel: Channel::new(),
       command_channel: Channel::new(),
+      safe_to_close_channel: Channel::new(),
       connection_state_channel: Channel::new(),
     }
   }
@@ -60,6 +62,10 @@ impl MqttChannels {
 
   pub fn command_receiver(&self) -> MqttTopicReceiver<'_, TargetState> {
     self.command_channel.receiver()
+  }
+
+  pub fn safe_to_close_receiver(&self) -> MqttTopicReceiver<'_, bool> {
+    self.safe_to_close_channel.receiver()
   }
 }
 
