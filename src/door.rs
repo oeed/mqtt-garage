@@ -1,6 +1,6 @@
 use std::{future, pin::pin, str::FromStr};
 
-use embassy_futures::select::{Either, Either3, Either4, select, select3, select4};
+use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_time::Timer;
 use esp_idf_svc::{hal::gpio::Gpio14, mqtt::client::QoS};
 use serde::Deserialize;
@@ -86,7 +86,7 @@ impl<'a> Door<'a> {
       current_state: initial_state.into(),
       last_open_sensor,
       last_closed_sensor,
-      safe_to_close: true,
+      safe_to_close: false,
       remote,
     };
 
@@ -94,7 +94,37 @@ impl<'a> Door<'a> {
 
     let initial_target_state =
       TargetState::from_str(&CONFIG.door.initial_target_state).expect("Invalid initial_target_state");
-    door.goto_target_state(initial_target_state).await?;
+
+    // If the initial target requires closing, wait for a safe_to_close message first
+    if initial_target_state == TargetState::Closed {
+      log::info!("Initial target is CLOSED, waiting for safe_to_close status");
+      let safe_result = select(
+        pin!(async { door.safe_to_close_receiver.receive().await }),
+        pin!(Timer::after(embassy_time::Duration::from_secs(10))),
+      )
+      .await;
+
+      match safe_result {
+        Either::First(safe) => {
+          door.safe_to_close = safe;
+          log::info!("Received initial safe_to_close: {}", safe);
+        }
+        Either::Second(_) => {
+          log::warn!("Timed out waiting for safe_to_close, assuming unsafe");
+        }
+      }
+
+      if !door.safe_to_close {
+        log::warn!("Not safe to close on startup, skipping initial close target");
+        door.publish_current_state().await;
+      }
+      else {
+        door.goto_target_state(initial_target_state).await?;
+      }
+    }
+    else {
+      door.goto_target_state(initial_target_state).await?;
+    }
 
     Ok(door)
   }
@@ -162,10 +192,10 @@ impl<'a> Door<'a> {
           );
 
           match (&self.current_state, detected_state) {
-            (State::Closed | State::Opening(_) | State::AttemptingOpen(_), SensorState::Stuck) => {
+            (State::Closed, SensorState::Stuck) => {
               self.set_current_state(State::StuckClosed).await
             }
-            (State::Open | State::AttemptingClose(_) | State::Closing(_), SensorState::Stuck) => {
+            (State::Open, SensorState::Stuck) => {
               self.set_current_state(State::StuckOpen).await
             }
 

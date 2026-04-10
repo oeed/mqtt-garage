@@ -86,13 +86,17 @@ impl ConfirmedTravel {
       Err(())
     }
     else {
-      self.expiry = Box::pin(Timer::after(self.duration));
+      // Use travel_duration for reattempts since the door may need to complete
+      // a full travel. The short initial duration is only for detecting that
+      // movement started on the first attempt.
+      let reattempt_duration = CONFIG.door.travel_duration;
+      self.expiry = Box::pin(Timer::after(reattempt_duration));
       self.attempt += 1;
       log::info!(
         "Door travel reattempt {} of {} (duration: {:?})",
         self.attempt,
         CONFIG.door.max_attempts,
-        self.duration
+        reattempt_duration
       );
       Ok(())
     }
@@ -209,14 +213,11 @@ pub enum SensorState {
 
 impl SensorState {
   pub fn from_sensors(open_sensor: SensorPayload, closed_sensor: SensorPayload) -> Self {
-    if open_sensor.contact {
-      SensorState::Open
-    }
-    else if closed_sensor.contact {
-      SensorState::Closed
-    }
-    else {
-      SensorState::Moving
+    match (open_sensor.contact, closed_sensor.contact) {
+      (true, true) => SensorState::Stuck,
+      (true, false) => SensorState::Open,
+      (false, true) => SensorState::Closed,
+      (false, false) => SensorState::Moving,
     }
   }
 }
