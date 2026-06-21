@@ -237,11 +237,10 @@ impl<'a> Door<'a> {
         Either4::Second(()) => {
           // expiry resolved
           match &mut self.current_state {
-            State::AttemptingOpen(confirmed_travel)
-            | State::Opening(confirmed_travel)
-            | State::AttemptingClose(confirmed_travel)
-            | State::Closing(confirmed_travel) => {
-              // the door didn't open/close as it was requested to
+            // Command-initiated travel: the relay was pulsed because *we* asked the door to move, so if
+            // it hasn't moved yet keep retrying the remote up to max_attempts before giving up.
+            State::AttemptingOpen(confirmed_travel) | State::AttemptingClose(confirmed_travel) => {
+              // the door didn't start moving as it was commanded to
               if confirmed_travel.reattempt().is_ok() {
                 // the travel expired, i.e. the door didn't move in to place before it should have
                 // travel is still the current state at this point, so we can safely assume it hasn't completed
@@ -252,15 +251,27 @@ impl<'a> Door<'a> {
               }
               else {
                 // we've tried too many times
-                log::info!("Door failed to move after maximum attemps, marking as stuck");
+                log::info!("Door failed to move after maximum attempts, marking as stuck");
                 match self.current_state {
                   // Attempting to open but failed => stuck closed
-                  State::AttemptingOpen(_) | State::Opening(_) => self.set_current_state(State::StuckClosed).await,
+                  State::AttemptingOpen(_) => self.set_current_state(State::StuckClosed).await,
                   // Attempting to close but failed => stuck open
-                  State::AttemptingClose(_) | State::Closing(_) => self.set_current_state(State::StuckOpen).await,
+                  State::AttemptingClose(_) => self.set_current_state(State::StuckOpen).await,
                   _ => unreachable!(),
                 }
               }
+            }
+            // Observed (uncommanded) travel: movement we *detected* from the sensors — e.g. someone used a
+            // separate handheld remote, or a flaky sensor reported movement that never happened. We must
+            // never actuate the relay here (doing so is what turned a sensor glitch into the door opening
+            // itself). If the travel never confirmed, the true position is unknown, so fail safe to stuck.
+            State::Opening(_) => {
+              log::info!("Observed opening did not complete, marking as stuck (no remote press)");
+              self.set_current_state(State::StuckClosed).await
+            }
+            State::Closing(_) => {
+              log::info!("Observed closing did not complete, marking as stuck (no remote press)");
+              self.set_current_state(State::StuckOpen).await
             }
             State::Open | State::StuckOpen | State::Closed | State::StuckClosed => {
               unreachable!("state should not have an expiry")
