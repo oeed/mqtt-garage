@@ -21,15 +21,6 @@ use crate::{
 pub mod remote;
 pub mod state;
 
-/// Minimum time a *changed* contact-sensor reading must persist before we act on it. This filters brief
-/// reed-switch flicker — both mid-travel double-triggers and stationary blips on a marginal magnet — so a
-/// momentary contact change no longer flaps the reported state or (with the actuation guard) the door.
-///
-/// Must stay comfortably shorter than the AttemptingOpen/AttemptingClose confirm window
-/// (`max_latency + pressed + wait`) so a genuine commanded travel is still confirmed before it reattempts,
-/// and shorter than `travel_duration` so a real open/close still confirms before the travel times out.
-const SENSOR_DEBOUNCE: embassy_time::Duration = embassy_time::Duration::from_millis(1500);
-
 /// Outcome of polling the (debounced) contact sensors for one loop iteration.
 enum SensorEvent {
   /// A raw reading arrived but no debounced change is ready to act on yet.
@@ -178,7 +169,7 @@ impl<'a> Door<'a> {
         pin!(async {
           // Race a fresh raw reading against the in-flight debounce timer (only armed while a change is
           // awaiting confirmation). This lets a brief flicker be cancelled by its own reversal before we
-          // ever act on it, while a genuine change still confirms after SENSOR_DEBOUNCE.
+          // ever act on it, while a genuine change still confirms after the debounce window.
           let event = select(
             pin!(async {
               match select(
@@ -215,7 +206,7 @@ impl<'a> Door<'a> {
               else if self.pending_sensor != Some(raw) {
                 // A new (or further changed) candidate — (re)arm the debounce window.
                 self.pending_sensor = Some(raw);
-                self.debounce_timer = Some(Box::pin(Timer::after(SENSOR_DEBOUNCE)));
+                self.debounce_timer = Some(Box::pin(Timer::after(CONFIG.door.debounce_duration)));
               }
               SensorEvent::Pending
             }
@@ -246,7 +237,7 @@ impl<'a> Door<'a> {
       // process the action
       match action {
         Either4::First(SensorEvent::Pending) => {
-          // A raw reading arrived but the change hasn't persisted for SENSOR_DEBOUNCE yet — wait.
+          // A raw reading arrived but the change hasn't persisted for the debounce window yet — wait.
         }
         Either4::First(SensorEvent::Committed(detected_state)) => {
           // a debounced sensor state change
