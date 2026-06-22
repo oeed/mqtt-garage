@@ -48,6 +48,12 @@ pub struct DoorConfig {
   pub stuck_topic: Cow<'static, str>,
   #[serde(deserialize_with = "deserialize_duration_millis")]
   pub travel_duration: embassy_time::Duration,
+  /// Minimum time a *changed* contact-sensor reading must persist before it is acted on. Filters brief
+  /// reed-switch flicker (mid-travel double-triggers and stationary blips on a marginal magnet). Optional
+  /// in the TOML; defaults to 1500ms. It is added to every confirm/travel window, so it can be raised
+  /// without separately widening those windows.
+  #[serde(default = "default_debounce_duration", deserialize_with = "deserialize_duration_millis")]
+  pub debounce_duration: embassy_time::Duration,
   pub open_sensor_topic: Cow<'static, str>,
   pub closed_sensor_topic: Cow<'static, str>,
   pub safe_to_close_topic: Cow<'static, str>,
@@ -61,6 +67,10 @@ where
 {
   let millis: u64 = Deserialize::deserialize(deserializer)?;
   Ok(embassy_time::Duration::from_millis(millis))
+}
+
+fn default_debounce_duration() -> embassy_time::Duration {
+  embassy_time::Duration::from_millis(1500)
 }
 
 
@@ -114,6 +124,8 @@ wait_time = 1.0
     assert_eq!(config.door.state_topic, "garage/door/state");
     assert_eq!(config.door.stuck_topic, "garage/door/stuck");
     assert_eq!(config.door.travel_duration, embassy_time::Duration::from_millis(30_000));
+    // omitted from the TOML above, so it falls back to the default
+    assert_eq!(config.door.debounce_duration, embassy_time::Duration::from_millis(1_500));
     assert_eq!(config.door.open_sensor_topic, "garage/door/open_sensor");
     assert_eq!(config.door.closed_sensor_topic, "garage/door/closed_sensor");
     assert_eq!(config.door.safe_to_close_topic, "garage/door/safe_to_close");

@@ -1,4 +1,4 @@
-use std::{future, pin::pin, str::FromStr};
+use std::{future, pin::{pin, Pin}, str::FromStr};
 
 use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_time::Timer;
@@ -21,6 +21,14 @@ use crate::{
 pub mod remote;
 pub mod state;
 
+/// Outcome of polling the (debounced) contact sensors for one loop iteration.
+enum SensorEvent {
+  /// A raw reading arrived but no debounced change is ready to act on yet.
+  Pending,
+  /// A changed sensor state persisted for `SENSOR_DEBOUNCE` and should now be processed.
+  Committed(SensorState),
+}
+
 pub struct Door<'a> {
   publisher: MqttTopicPublisher<'a>,
   /// Sensor for the top (i.e. on contact, the door is open)
@@ -30,8 +38,15 @@ pub struct Door<'a> {
   command_receiver: MqttTopicReceiver<'a, TargetState>,
   safe_to_close_receiver: MqttTopicReceiver<'a, bool>,
 
+  /// The most recent raw reading from each sensor (pre-debounce).
   last_open_sensor: SensorPayload,
   last_closed_sensor: SensorPayload,
+  /// The last sensor state we have accepted after debouncing.
+  sensor_state: SensorState,
+  /// A changed sensor state observed but not yet confirmed for `SENSOR_DEBOUNCE`.
+  pending_sensor: Option<SensorState>,
+  /// Active while a sensor change is being debounced; resolves when the change is confirmed.
+  debounce_timer: Option<Pin<Box<Timer>>>,
   /// Whether it is currently safe to close the door. Defaults to `true` until told otherwise.
   safe_to_close: bool,
 
@@ -86,6 +101,9 @@ impl<'a> Door<'a> {
       current_state: initial_state.into(),
       last_open_sensor,
       last_closed_sensor,
+      sensor_state: initial_state,
+      pending_sensor: None,
+      debounce_timer: None,
       safe_to_close: false,
       remote,
     };
@@ -149,22 +167,57 @@ impl<'a> Door<'a> {
       // determine what action is ready to be processed
       let action = select4(
         pin!(async {
-          let action = select(
-            pin!(async { self.open_sensor_receiver.receive().await }),
-            pin!(async { self.closed_sensor_receiver.receive().await }),
+          // Race a fresh raw reading against the in-flight debounce timer (only armed while a change is
+          // awaiting confirmation). This lets a brief flicker be cancelled by its own reversal before we
+          // ever act on it, while a genuine change still confirms after the debounce window.
+          let event = select(
+            pin!(async {
+              match select(
+                pin!(async { self.open_sensor_receiver.receive().await }),
+                pin!(async { self.closed_sensor_receiver.receive().await }),
+              )
+              .await
+              {
+                Either::First(open_sensor) => self.last_open_sensor = open_sensor,
+                Either::Second(closed_sensor) => self.last_closed_sensor = closed_sensor,
+              }
+            }),
+            pin!(async {
+              // Only resolves while a change is awaiting confirmation; otherwise never.
+              if let Some(timer) = self.debounce_timer.as_mut() {
+                timer.await;
+              }
+              else {
+                future::pending().await
+              }
+            }),
           )
           .await;
 
-          match action {
-            Either::First(open_sensor) => {
-              self.last_open_sensor = open_sensor;
+          match event {
+            // A raw reading arrived — (re)evaluate whether a debounced change is pending.
+            Either::First(()) => {
+              let raw = SensorState::from_sensors(self.last_open_sensor, self.last_closed_sensor);
+              if raw == self.sensor_state {
+                // Reverted to the already-accepted value within the window — cancel the pending change.
+                self.pending_sensor = None;
+                self.debounce_timer = None;
+              }
+              else if self.pending_sensor != Some(raw) {
+                // A new (or further changed) candidate — (re)arm the debounce window.
+                self.pending_sensor = Some(raw);
+                self.debounce_timer = Some(Box::pin(Timer::after(CONFIG.door.debounce_duration)));
+              }
+              SensorEvent::Pending
             }
-            Either::Second(closed_sensor) => {
-              self.last_closed_sensor = closed_sensor;
+            // The candidate persisted for the whole window — accept it.
+            Either::Second(()) => {
+              let committed = self.pending_sensor.take().unwrap_or(self.sensor_state);
+              self.debounce_timer = None;
+              self.sensor_state = committed;
+              SensorEvent::Committed(committed)
             }
           }
-
-          SensorState::from_sensors(self.last_open_sensor, self.last_closed_sensor)
         }),
         pin!(async {
           // wait for a state expiry to complete (e.g. travel time)
@@ -183,65 +236,20 @@ impl<'a> Door<'a> {
 
       // process the action
       match action {
-        Either4::First(detected_state) => {
-          // detected state changed
-          log::info!(
-            "Door detected state: {:?}, current state: {:?}",
-            &detected_state,
-            &self.current_state
-          );
-
-          match (&self.current_state, detected_state) {
-            (State::Closed, SensorState::Stuck) => {
-              self.set_current_state(State::StuckClosed).await
-            }
-            (State::Open, SensorState::Stuck) => {
-              self.set_current_state(State::StuckOpen).await
-            }
-
-            (State::Closed | State::AttemptingOpen(_) | State::StuckClosed, SensorState::Moving) => {
-              // door was stuck/closed but it's now opening
-              log::info!("Door was detected now opening");
-              self
-                .set_current_state(State::Opening(ConfirmedTravel::new(CONFIG.door.travel_duration)))
-                .await
-            }
-            (State::Open | State::AttemptingClose(_) | State::StuckOpen, SensorState::Moving) => {
-              // door was stuck/open but it's now closing
-              log::info!("Door was detected now closing");
-              self
-                .set_current_state(State::Closing(ConfirmedTravel::new(CONFIG.door.travel_duration)))
-                .await
-            }
-
-            (
-              State::Closed | State::AttemptingOpen(_) | State::Opening(_) | State::StuckClosed | State::StuckOpen,
-              SensorState::Open,
-            ) => {
-              // door was closed/stuck/opening and it's now open
-              log::info!("Door was opened");
-              self.set_current_state(State::Open).await
-            }
-            (
-              State::Open | State::AttemptingClose(_) | State::Closing(_) | State::StuckClosed | State::StuckOpen,
-              SensorState::Closed,
-            ) => {
-              // door was open/stuck/closing and it's now closed
-              log::info!("Door was closed");
-              self.set_current_state(State::Closed).await
-            }
-
-            _ => (), // no-op
-          }
+        Either4::First(SensorEvent::Pending) => {
+          // A raw reading arrived but the change hasn't persisted for the debounce window yet — wait.
+        }
+        Either4::First(SensorEvent::Committed(detected_state)) => {
+          // a debounced sensor state change
+          self.process_detected_state(detected_state).await;
         }
         Either4::Second(()) => {
           // expiry resolved
           match &mut self.current_state {
-            State::AttemptingOpen(confirmed_travel)
-            | State::Opening(confirmed_travel)
-            | State::AttemptingClose(confirmed_travel)
-            | State::Closing(confirmed_travel) => {
-              // the door didn't open/close as it was requested to
+            // Command-initiated travel: the relay was pulsed because *we* asked the door to move, so if
+            // it hasn't moved yet keep retrying the remote up to max_attempts before giving up.
+            State::AttemptingOpen(confirmed_travel) | State::AttemptingClose(confirmed_travel) => {
+              // the door didn't start moving as it was commanded to
               if confirmed_travel.reattempt().is_ok() {
                 // the travel expired, i.e. the door didn't move in to place before it should have
                 // travel is still the current state at this point, so we can safely assume it hasn't completed
@@ -252,15 +260,27 @@ impl<'a> Door<'a> {
               }
               else {
                 // we've tried too many times
-                log::info!("Door failed to move after maximum attemps, marking as stuck");
+                log::info!("Door failed to move after maximum attempts, marking as stuck");
                 match self.current_state {
                   // Attempting to open but failed => stuck closed
-                  State::AttemptingOpen(_) | State::Opening(_) => self.set_current_state(State::StuckClosed).await,
+                  State::AttemptingOpen(_) => self.set_current_state(State::StuckClosed).await,
                   // Attempting to close but failed => stuck open
-                  State::AttemptingClose(_) | State::Closing(_) => self.set_current_state(State::StuckOpen).await,
+                  State::AttemptingClose(_) => self.set_current_state(State::StuckOpen).await,
                   _ => unreachable!(),
                 }
               }
+            }
+            // Observed (uncommanded) travel: movement we *detected* from the sensors — e.g. someone used a
+            // separate handheld remote, or a flaky sensor reported movement that never happened. We must
+            // never actuate the relay here (doing so is what turned a sensor glitch into the door opening
+            // itself). If the travel never confirmed, the true position is unknown, so fail safe to stuck.
+            State::Opening(_) => {
+              log::info!("Observed opening did not complete, marking as stuck (no remote press)");
+              self.set_current_state(State::StuckClosed).await
+            }
+            State::Closing(_) => {
+              log::info!("Observed closing did not complete, marking as stuck (no remote press)");
+              self.set_current_state(State::StuckOpen).await
             }
             State::Open | State::StuckOpen | State::Closed | State::StuckClosed => {
               unreachable!("state should not have an expiry")
@@ -282,6 +302,68 @@ impl<'a> Door<'a> {
           self.safe_to_close = safe_to_close;
         }
       }
+    }
+  }
+
+  /// Apply a debounced sensor state change to the current door state.
+  async fn process_detected_state(&mut self, detected_state: SensorState) {
+    log::info!(
+      "Door detected state: {:?}, current state: {:?}",
+      &detected_state,
+      &self.current_state
+    );
+
+    match (&self.current_state, detected_state) {
+      (State::Closed, SensorState::Stuck) => self.set_current_state(State::StuckClosed).await,
+      (State::Open, SensorState::Stuck) => self.set_current_state(State::StuckOpen).await,
+
+      (State::Closed | State::AttemptingOpen(_) | State::StuckClosed, SensorState::Moving) => {
+        // door was stuck/closed but it's now opening
+        log::info!("Door was detected now opening");
+        self
+          .set_current_state(State::Opening(ConfirmedTravel::new(CONFIG.door.travel_duration)))
+          .await
+      }
+      (State::Open | State::AttemptingClose(_) | State::StuckOpen, SensorState::Moving) => {
+        // door was stuck/open but it's now closing
+        log::info!("Door was detected now closing");
+        self
+          .set_current_state(State::Closing(ConfirmedTravel::new(CONFIG.door.travel_duration)))
+          .await
+      }
+
+      (
+        State::Closed | State::AttemptingOpen(_) | State::Opening(_) | State::StuckClosed | State::StuckOpen,
+        SensorState::Open,
+      ) => {
+        // door was closed/stuck/opening and it's now open
+        log::info!("Door was opened");
+        self.set_current_state(State::Open).await
+      }
+      (
+        State::Open | State::AttemptingClose(_) | State::Closing(_) | State::StuckClosed | State::StuckOpen,
+        SensorState::Closed,
+      ) => {
+        // door was open/stuck/closing and it's now closed
+        log::info!("Door was closed");
+        self.set_current_state(State::Closed).await
+      }
+
+      // We thought the door was travelling on its own, but the sensors have now settled (for the full
+      // debounce window) back on the position it started from: the movement reading was a transient glitch
+      // that has since cleared. Snap back to the real state rather than waiting for the travel to time out.
+      // The debounce is what makes this safe — a brief mid-travel double-trigger never reaches here, so a
+      // genuine external-remote open/close is not mistaken for a reverting glitch.
+      (State::Opening(_), SensorState::Closed) => {
+        log::info!("Observed opening did not happen, reverting to closed");
+        self.set_current_state(State::Closed).await
+      }
+      (State::Closing(_), SensorState::Open) => {
+        log::info!("Observed closing did not happen, reverting to open");
+        self.set_current_state(State::Open).await
+      }
+
+      _ => (), // no-op
     }
   }
 

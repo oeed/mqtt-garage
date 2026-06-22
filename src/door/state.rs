@@ -68,7 +68,10 @@ pub struct ConfirmedTravel {
 impl ConfirmedTravel {
   pub fn new(duration: embassy_time::Duration) -> Self {
     ConfirmedTravel {
-      expiry: Box::pin(Timer::after(duration)),
+      // Movement is only recognised after the debounce window, so budget for it on top of the caller's
+      // duration — otherwise a genuine movement that starts late in the window could be recognised after
+      // the timer has already expired, spuriously re-pulsing the relay (or marking a real travel stuck).
+      expiry: Box::pin(Timer::after(duration + CONFIG.door.debounce_duration)),
       duration,
       attempt: 0,
     }
@@ -88,8 +91,9 @@ impl ConfirmedTravel {
     else {
       // Use travel_duration for reattempts since the door may need to complete
       // a full travel. The short initial duration is only for detecting that
-      // movement started on the first attempt.
-      let reattempt_duration = CONFIG.door.travel_duration;
+      // movement started on the first attempt. Add the debounce window so a
+      // movement recognised late (after debounce) isn't missed by the timer.
+      let reattempt_duration = CONFIG.door.travel_duration + CONFIG.door.debounce_duration;
       self.expiry = Box::pin(Timer::after(reattempt_duration));
       self.attempt += 1;
       log::info!(
