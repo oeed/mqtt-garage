@@ -14,7 +14,16 @@ pub struct WifiConfig {
   pub hostname: Cow<'static, str>,
   pub ssid: Cow<'static, str>,
   pub password: Cow<'static, str>,
+  /// Syslog server to stream logs to over TCP.
   pub syslog_server: SocketAddrV4,
+  /// NTP server used to obtain wall-clock time (the device has no battery-backed RTC).
+  /// Point this at a LAN source (router/Home Assistant) or a public pool.
+  #[serde(default = "default_ntp_server")]
+  pub ntp_server: Cow<'static, str>,
+}
+
+fn default_ntp_server() -> Cow<'static, str> {
+  Cow::Borrowed("pool.ntp.org")
 }
 
 
@@ -82,8 +91,10 @@ mod tests {
   fn test_deserialize_config() {
     let config_str = r#"
 [wifi]
+hostname = "garage"
 ssid = "my-ssid"
 password = "my-password"
+syslog_server = "192.168.1.10:514"
 
 [mqtt]
 url = "mqtt://localhost:1883"
@@ -97,21 +108,24 @@ command_topic = "garage/door/command"
 initial_target_state = "closed"
 state_topic = "garage/door/state"
 stuck_topic = "garage/door/stuck"
-travel_duration = 30.0
+travel_duration = 30000
 open_sensor_topic = "garage/door/open_sensor"
 closed_sensor_topic = "garage/door/closed_sensor"
-safe_to_close_topic = "garage/door/safe_to_close" 
+safe_to_close_topic = "garage/door/safe_to_close"
 max_attempts = 3
 
 [door.remote]
-pressed_time = 0.5
-wait_time = 1.0
+pressed_duration = 500
+wait_duration = 1000
+max_latency_duration = 250
 "#;
 
     let config: Config = toml::from_str(config_str).unwrap();
 
     assert_eq!(config.wifi.ssid, "my-ssid");
     assert_eq!(config.wifi.password, "my-password");
+    // omitted from the TOML above, so it falls back to the default
+    assert_eq!(config.wifi.ntp_server, "pool.ntp.org");
 
     assert_eq!(config.mqtt.url, "mqtt://localhost:1883");
     assert_eq!(config.mqtt.client_id, "garage-door");

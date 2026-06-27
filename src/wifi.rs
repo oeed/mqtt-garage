@@ -82,22 +82,8 @@ impl Wifi {
 
     log::info!("Wifi DHCP info: {ip_info:?}");
 
-    {
-      use log::LevelFilter;
-      use syslog_esp32::{Facility, init_udp_ipv4};
-
-      let result = init_udp_ipv4(
-        Some(&CONFIG.wifi.hostname),
-        "mqtt-garage",
-        Facility::LOG_USER,
-        LevelFilter::Info,
-        CONFIG.wifi.syslog_server.into(),
-      );
-
-      if let Err(err) = result {
-        log::error!("Failed to initialize syslog: {:?}", err);
-      }
-    }
+    // The syslog logger is initialized in `log_storage` before WiFi starts, so its worker
+    // thread will connect and drain any logs spilled during boot now that the link is up.
 
     Ok(Wifi { wifi })
   }

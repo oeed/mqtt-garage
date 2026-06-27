@@ -30,6 +30,7 @@ fn main() {
           ssid: Cow::Borrowed("{wifi_ssid}"),
           password: Cow::Borrowed("{wifi_psk}"),
           syslog_server: SocketAddrV4::new(Ipv4Addr::from_bits({wifi_syslog_server_ip}), {wifi_syslog_server_port}),
+          ntp_server: Cow::Borrowed("{wifi_ntp_server}"),
         }},
         mqtt: MqttConfig {{
           url: Cow::Borrowed("{mqtt_url}"),
@@ -63,6 +64,7 @@ fn main() {
     wifi_psk = config.wifi.password,
     wifi_syslog_server_ip = config.wifi.syslog_server.ip().to_bits(),
     wifi_syslog_server_port = config.wifi.syslog_server.port(),
+    wifi_ntp_server = config.wifi.ntp_server,
     // MQTT
     mqtt_url = config.mqtt.url,
     mqtt_client_id = config.mqtt.client_id,

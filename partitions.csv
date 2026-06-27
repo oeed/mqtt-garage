@@ -4,3 +4,4 @@ nvs,      data, nvs,     ,        24K
 phy_init, data, phy,     ,        4K
 factory,  app,  factory, ,        6144K
 coredump, data, coredump,,        128K
+logspill, data, fat,     ,        1M
