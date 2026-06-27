@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use std::pin::pin;
 
 use embassy_executor::Spawner;
-use embassy_futures::select::{Either4, select4};
+use embassy_futures::select::{Either, Either4, select, select4};
 #[cfg(debug_assertions)]
 use esp_idf_svc::log::EspLogger;
 use esp_idf_svc::{
@@ -19,12 +19,14 @@ use esp_idf_svc::{
 
 use crate::{
   door::Door,
+  error::GarageError,
   mqtt_client::{MqttChannels, MqttClient},
   rgb::RgbLed,
   wifi::Wifi,
 };
 
 pub mod config;
+pub mod diagnostics;
 pub mod door;
 pub mod error;
 pub mod health;
@@ -35,7 +37,7 @@ pub mod time_sync;
 pub mod wifi;
 
 
-use health::{LAST_ASYNC_TICK_1S_S, LAST_TIMER_THREAD_TICK_S, init_baseline, now_secs};
+use health::{LAST_ASYNC_TICK_1S_S, LAST_TIMER_THREAD_TICK_S, MQTT_DISCONNECTED_SINCE_S, init_baseline, now_secs};
 
 #[embassy_executor::task]
 async fn timer_thread_heartbeat_task() {
@@ -67,10 +69,28 @@ async fn main(_spawner: Spawner) {
   let nvs = EspDefaultNvsPartition::take().unwrap();
   let peripherals = Peripherals::take().unwrap();
 
+  // Read and log the reset/wakeup reason and boot diagnostics BEFORE WiFi comes up. The
+  // logger and its flash spill buffer are already running, so this record is captured and
+  // delivered on the next connect even when WiFi itself is what failed.
+  let reset_reason = ResetReason::get();
+  log::info!("Reset reason: {reset_reason:?}");
+  log::info!("Wakeup reason: {:?}", WakeupReason::get());
+  match diagnostics::Diagnostics::new(nvs.clone()) {
+    Ok(diag) => {
+      let record = diag.record_boot(reset_reason);
+      log::info!(
+        "Boot #{} (previous reset reason discriminant: {:?})",
+        record.boot_count,
+        record.previous_reset,
+      );
+    }
+    Err(err) => log::warn!("Boot diagnostics unavailable: {err:?}"),
+  }
+
   // loop {
   let err = async {
     let mut rgb_led = RgbLed::new(peripherals.rmt.channel0, peripherals.pins.gpio48)?;
-    let _wifi = Wifi::connect(
+    let wifi = Wifi::connect(
       peripherals.modem,
       sys_loop.clone(),
       timer_service.clone(),
@@ -94,17 +114,15 @@ async fn main(_spawner: Spawner) {
     LAST_ASYNC_TICK_1S_S.store(0, Ordering::Relaxed);
     LAST_TIMER_THREAD_TICK_S.store(0, Ordering::Relaxed);
 
-    log::info!("Reset reason: {:?}", ResetReason::get());
-    log::info!("Wakeup reason: {:?}", WakeupReason::get());
-
-
     {
-      // monitor async executor health and reboot if stalled
+      // Backstop watchdog on its own std thread (independent of the async executor). Reboots
+      // on either a stalled executor or a prolonged loss of MQTT connectivity. The Wi-Fi
+      // supervisor normally restores the link long before the connectivity timeout fires;
+      // this only triggers if reconnection is impossible (e.g. a dead AP backhaul).
+      let connectivity_timeout_s = crate::config::CONFIG.wifi.connectivity_timeout.as_secs() as u32;
       std::thread::spawn(move || {
-        let mut counter: u8 = 0;
         loop {
           std::thread::sleep(std::time::Duration::from_secs(20));
-          counter = counter.wrapping_add(1);
 
           let now_s = now_secs();
           let last_s = LAST_ASYNC_TICK_1S_S.load(Ordering::Relaxed);
@@ -119,6 +137,16 @@ async fn main(_spawner: Spawner) {
               age(&LAST_TIMER_THREAD_TICK_S),
             );
             // wait to send log message before restarting
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            esp_idf_svc::hal::reset::restart();
+          }
+
+          let disconnected_since = MQTT_DISCONNECTED_SINCE_S.load(Ordering::Relaxed);
+          if disconnected_since != 0 && now_s.saturating_sub(disconnected_since) > connectivity_timeout_s {
+            log::error!(
+              "No MQTT connectivity for {}s; restarting",
+              now_s.saturating_sub(disconnected_since),
+            );
             std::thread::sleep(std::time::Duration::from_secs(1));
             esp_idf_svc::hal::reset::restart();
           }
@@ -154,15 +182,20 @@ async fn main(_spawner: Spawner) {
         )
       }),
       pin!(async move {
-        let mut count: u32 = 0;
-        loop {
-          embassy_time::Timer::after(embassy_time::Duration::from_secs(1)).await;
-          let now_s = now_secs();
-          LAST_ASYNC_TICK_1S_S.store(now_s, Ordering::Relaxed);
-          count = count.wrapping_add(1);
+        // Drive the 1s health ticker and the Wi-Fi reconnect supervisor concurrently. The
+        // ticker never returns; the supervisor only returns (with an error) when reconnection
+        // is hopeless, which bubbles up to a reboot below.
+        let ticker = pin!(async {
+          loop {
+            embassy_time::Timer::after(embassy_time::Duration::from_secs(1)).await;
+            LAST_ASYNC_TICK_1S_S.store(now_secs(), Ordering::Relaxed);
+          }
+          #[allow(unreachable_code)]
+          Ok::<(), GarageError>(())
+        });
+        match select(ticker, pin!(wifi.supervise())).await {
+          Either::First(result) | Either::Second(result) => result,
         }
-        #[allow(unreachable_code)]
-        Ok(())
       }),
     )
     .await;

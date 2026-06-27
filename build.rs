@@ -31,6 +31,11 @@ fn main() {
           password: Cow::Borrowed("{wifi_psk}"),
           syslog_server: SocketAddrV4::new(Ipv4Addr::from_bits({wifi_syslog_server_ip}), {wifi_syslog_server_port}),
           ntp_server: Cow::Borrowed("{wifi_ntp_server}"),
+          connect_timeout: embassy_time::Duration::from_millis({wifi_connect_timeout_ms}),
+          connect_max_attempts: {wifi_connect_max_attempts},
+          reconnect_backoff: embassy_time::Duration::from_millis({wifi_reconnect_backoff_ms}),
+          reconnect_max_backoff: embassy_time::Duration::from_millis({wifi_reconnect_max_backoff_ms}),
+          connectivity_timeout: embassy_time::Duration::from_millis({wifi_connectivity_timeout_ms}),
         }},
         mqtt: MqttConfig {{
           url: Cow::Borrowed("{mqtt_url}"),
@@ -65,6 +70,11 @@ fn main() {
     wifi_syslog_server_ip = config.wifi.syslog_server.ip().to_bits(),
     wifi_syslog_server_port = config.wifi.syslog_server.port(),
     wifi_ntp_server = config.wifi.ntp_server,
+    wifi_connect_timeout_ms = config.wifi.connect_timeout.as_millis(),
+    wifi_connect_max_attempts = config.wifi.connect_max_attempts,
+    wifi_reconnect_backoff_ms = config.wifi.reconnect_backoff.as_millis(),
+    wifi_reconnect_max_backoff_ms = config.wifi.reconnect_max_backoff.as_millis(),
+    wifi_connectivity_timeout_ms = config.wifi.connectivity_timeout.as_millis(),
     // MQTT
     mqtt_url = config.mqtt.url,
     mqtt_client_id = config.mqtt.client_id,

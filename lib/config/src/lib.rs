@@ -20,10 +20,48 @@ pub struct WifiConfig {
   /// Point this at a LAN source (router/Home Assistant) or a public pool.
   #[serde(default = "default_ntp_server")]
   pub ntp_server: Cow<'static, str>,
+  /// Upper bound on a single association/DHCP attempt. esp-idf-svc already bounds its own
+  /// waits (~15s), but `start()` is unbounded; this caps the whole bring-up step.
+  #[serde(default = "default_connect_timeout", deserialize_with = "deserialize_duration_millis")]
+  pub connect_timeout: embassy_time::Duration,
+  /// Consecutive failed association attempts (boot or reconnect) before giving up and
+  /// rebooting, so a wedged link never leaves the device offline indefinitely.
+  #[serde(default = "default_connect_max_attempts")]
+  pub connect_max_attempts: u8,
+  /// Initial backoff between association attempts; doubles up to `reconnect_max_backoff`.
+  #[serde(default = "default_reconnect_backoff", deserialize_with = "deserialize_duration_millis")]
+  pub reconnect_backoff: embassy_time::Duration,
+  /// Cap on the exponential reconnect backoff.
+  #[serde(default = "default_reconnect_max_backoff", deserialize_with = "deserialize_duration_millis")]
+  pub reconnect_max_backoff: embassy_time::Duration,
+  /// If MQTT stays disconnected for longer than this, reboot. Backstop for the case where
+  /// the radio is associated but there is no usable path to the broker (dead AP backhaul).
+  #[serde(default = "default_connectivity_timeout", deserialize_with = "deserialize_duration_millis")]
+  pub connectivity_timeout: embassy_time::Duration,
 }
 
 fn default_ntp_server() -> Cow<'static, str> {
   Cow::Borrowed("pool.ntp.org")
+}
+
+fn default_connect_timeout() -> embassy_time::Duration {
+  embassy_time::Duration::from_secs(20)
+}
+
+fn default_connect_max_attempts() -> u8 {
+  5
+}
+
+fn default_reconnect_backoff() -> embassy_time::Duration {
+  embassy_time::Duration::from_secs(1)
+}
+
+fn default_reconnect_max_backoff() -> embassy_time::Duration {
+  embassy_time::Duration::from_secs(30)
+}
+
+fn default_connectivity_timeout() -> embassy_time::Duration {
+  embassy_time::Duration::from_secs(120)
 }
 
 
@@ -124,8 +162,13 @@ max_latency_duration = 250
 
     assert_eq!(config.wifi.ssid, "my-ssid");
     assert_eq!(config.wifi.password, "my-password");
-    // omitted from the TOML above, so it falls back to the default
+    // omitted from the TOML above, so these fall back to their defaults
     assert_eq!(config.wifi.ntp_server, "pool.ntp.org");
+    assert_eq!(config.wifi.connect_timeout, embassy_time::Duration::from_secs(20));
+    assert_eq!(config.wifi.connect_max_attempts, 5);
+    assert_eq!(config.wifi.reconnect_backoff, embassy_time::Duration::from_secs(1));
+    assert_eq!(config.wifi.reconnect_max_backoff, embassy_time::Duration::from_secs(30));
+    assert_eq!(config.wifi.connectivity_timeout, embassy_time::Duration::from_secs(120));
 
     assert_eq!(config.mqtt.url, "mqtt://localhost:1883");
     assert_eq!(config.mqtt.client_id, "garage-door");

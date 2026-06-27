@@ -10,6 +10,7 @@ use crate::{
   config::CONFIG,
   door::{SensorPayload, state::TargetState},
   error::GarageResult,
+  health::{mark_mqtt_connected, mark_mqtt_disconnected},
   mqtt_client::{CHANNEL_SIZE, MqttChannels, MqttConnectionState},
 };
 
@@ -73,6 +74,8 @@ impl<'a> MqttReceiver<'a> {
 
         EventPayload::Connected(_) => {
           log::info!("MQTT connected");
+          // End-to-end connectivity is healthy again: disarm the connectivity watchdog.
+          mark_mqtt_connected();
           self
             .connection_state_send_channel
             .send(MqttConnectionState::Connected)
@@ -81,6 +84,9 @@ impl<'a> MqttReceiver<'a> {
 
         EventPayload::Disconnected => {
           log::warn!("MQTT disconnected; waiting for reconnect");
+          // Arm the connectivity watchdog: if this outage persists the device reboots, even
+          // though the Wi-Fi supervisor will normally restore the link well before then.
+          mark_mqtt_disconnected();
           self
             .connection_state_send_channel
             .send(MqttConnectionState::Disconnected)
