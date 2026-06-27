@@ -1,0 +1,3 @@
+[connection]
+# the port used for power can be used for flashing, so just plug that table in directly
+serial = "/dev/cu.usbmodem101"

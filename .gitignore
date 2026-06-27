@@ -3,4 +3,5 @@
 .env
 garage-config.toml
 *.state
-garage-config.prod.toml
+garage-config.*.toml
+/.embuild

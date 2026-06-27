@@ -1,49 +1,93 @@
-use std::collections::HashMap;
+use std::str::FromStr;
 
-use rumqttc::{AsyncClient, Event, EventLoop, Packet, QoS};
-use tokio::sync::mpsc;
+use embassy_sync::{
+  blocking_mutex::raw::NoopRawMutex,
+  channel::{Receiver, Sender},
+};
+use esp_idf_svc::mqtt::client::*;
 
-use super::{MqttPublish, PublishSender};
-use crate::error::GarageResult;
+use crate::{
+  config::CONFIG,
+  door::{SensorPayload, state::TargetState},
+  error::GarageResult,
+  mqtt_client::{CHANNEL_SIZE, MqttChannels, MqttConnectionState},
+};
 
-pub type PublishReceiver = mpsc::UnboundedReceiver<MqttPublish>;
 
-pub struct MqttReceiver {
-  pub(super) client: AsyncClient,
-  pub event_loop: EventLoop,
-  /// The channel with which messages received from MQTT are fowarded on
-  pub receive_channels: HashMap<String, PublishSender>,
+pub type MqttTopicReceiver<'a, T> = Receiver<'a, NoopRawMutex, T, CHANNEL_SIZE>;
+
+pub struct MqttReceiver<'a> {
+  connection: EspAsyncMqttConnection,
+  open_sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
+  closed_sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
+  command_send_channel: Sender<'a, NoopRawMutex, TargetState, CHANNEL_SIZE>,
+  safe_to_close_send_channel: Sender<'a, NoopRawMutex, bool, CHANNEL_SIZE>,
+  connection_state_send_channel: Sender<'a, NoopRawMutex, MqttConnectionState, CHANNEL_SIZE>,
 }
 
-impl MqttReceiver {
-  pub async fn subscribe(&mut self, topic: String, qos: QoS) -> GarageResult<PublishReceiver> {
-    if self.receive_channels.contains_key(&topic) {
-      panic!("attempted to subscribe to the same channel twice");
+impl<'a> MqttReceiver<'a> {
+  pub fn new(connection: EspAsyncMqttConnection, channels: &'a MqttChannels) -> MqttReceiver<'a> {
+    MqttReceiver {
+      connection,
+      open_sensor_send_channel: channels.open_sensor_channel.sender(),
+      closed_sensor_send_channel: channels.closed_sensor_channel.sender(),
+      command_send_channel: channels.command_channel.sender(),
+      safe_to_close_send_channel: channels.safe_to_close_channel.sender(),
+      connection_state_send_channel: channels.connection_state_channel.sender(),
     }
-
-    self.client.subscribe(&topic, qos).await?;
-    let (receive_tx, receive_rx) = mpsc::unbounded_channel();
-    self.receive_channels.insert(topic, receive_tx);
-
-    Ok(receive_rx)
   }
 
   pub async fn receive_messages(&mut self) -> GarageResult<()> {
     loop {
-      let notification = self.event_loop.poll().await?;
-      if let Event::Incoming(Packet::Publish(message)) = notification {
-        if let Some(channel) = self.receive_channels.get(&message.topic) {
-          if let Ok(payload) = String::from_utf8(message.payload.to_vec()) {
-            channel
-              .send(MqttPublish {
-                topic: message.topic,
-                qos: message.qos,
-                retain: message.retain,
-                payload,
-              })
-              .ok();
+      let event = self.connection.next().await?;
+      match event.payload() {
+        EventPayload::Received { topic, data, .. } => {
+          if topic == Some(&CONFIG.door.open_sensor_topic)
+            && let Ok((payload, _)) = serde_json_core::from_slice(data)
+          {
+            log::info!("Received open sensor: {payload:?}");
+            self.open_sensor_send_channel.send(payload).await;
+          }
+          else if topic == Some(&CONFIG.door.closed_sensor_topic)
+            && let Ok((payload, _)) = serde_json_core::from_slice(data)
+          {
+            log::info!("Received closed sensor: {payload:?}");
+            self.closed_sensor_send_channel.send(payload).await;
+          }
+          else if topic == Some(&CONFIG.door.command_topic)
+            && let Ok(state) = str::from_utf8(data)
+              .map_err(|_| ())
+              .and_then(|str| TargetState::from_str(str))
+          {
+            log::info!("Received command: {state}");
+            self.command_send_channel.send(state).await;
+          }
+          else if topic == Some(&CONFIG.door.safe_to_close_topic)
+            && let Ok(value) = str::from_utf8(data)
+          {
+            let safe = value == "true";
+            log::info!("Received safe_to_close: {safe}");
+            self.safe_to_close_send_channel.send(safe).await;
           }
         }
+
+        EventPayload::Connected(_) => {
+          log::info!("MQTT connected");
+          self
+            .connection_state_send_channel
+            .send(MqttConnectionState::Connected)
+            .await;
+        }
+
+        EventPayload::Disconnected => {
+          log::warn!("MQTT disconnected; waiting for reconnect");
+          self
+            .connection_state_send_channel
+            .send(MqttConnectionState::Disconnected)
+            .await;
+        }
+
+        _ => {}
       }
     }
   }

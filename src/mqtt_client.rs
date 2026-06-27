@@ -1,103 +1,122 @@
-use std::{
-  collections::HashMap,
-  fmt::{self, Debug},
-  time::Duration,
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Channel};
+use esp_idf_svc::mqtt::client::*;
+use smart_leds::colors;
+
+pub use self::{
+  publisher::{MqttPublish, MqttPublisher, MqttTopicPublisher},
+  receiver::{MqttReceiver, MqttTopicReceiver},
+};
+use crate::{
+  config::CONFIG,
+  door::{SensorPayload, state::TargetState},
+  error::{GarageError, GarageResult},
+  rgb::RgbLed,
 };
 
-use rumqttc::{AsyncClient, LastWill, MqttOptions, QoS};
-use serde::Deserialize;
-use tokio::sync::mpsc;
+mod publisher;
+mod receiver;
 
-use self::{
-  receiver::MqttReceiver,
-  sender::{MqttSender, PublishSender},
-};
-use crate::error::GarageResult;
+const CHANNEL_SIZE: usize = 4;
 
-pub mod receiver;
-pub mod sender;
-
-#[derive(Debug, Deserialize)]
-pub struct MqttClientConfig {
-  /// The domain name of the broker
-  pub broker_domain: String,
-  /// The port of the broker, 1883 by default
-  pub broker_port: u16,
-  /// The name of the MQTT topic availability states are sent on
-  pub availability_topic: String,
-  /// The payload of the state indicating the door is online
-  pub online_availability: String,
-  /// The payload of the state indicating the door is offline
-  pub offline_availability: String,
+#[derive(Debug, Clone, Copy)]
+pub enum MqttConnectionState {
+  Connected,
+  Disconnected,
 }
 
-#[derive(Debug)]
-pub struct MqttPublish {
-  pub topic: String,
-  pub qos: QoS,
-  pub retain: bool,
-  pub payload: String,
+pub struct MqttChannels {
+  /// The channel with which messages to send to MQTT are received on (from `MqttTopicPublisher`)
+  publish_channel: Channel<NoopRawMutex, MqttPublish, CHANNEL_SIZE>, // TODO: need to assess whether the fixed limit will have issues
+  open_sensor_channel: Channel<NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
+  closed_sensor_channel: Channel<NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
+  command_channel: Channel<NoopRawMutex, TargetState, CHANNEL_SIZE>,
+  safe_to_close_channel: Channel<NoopRawMutex, bool, CHANNEL_SIZE>,
+  connection_state_channel: Channel<NoopRawMutex, MqttConnectionState, CHANNEL_SIZE>,
 }
 
-pub struct MqttClient {
-  availability_topic: String,
-  online_availability: String,
-  pub sender: MqttSender,
-  pub receiver: MqttReceiver,
-  pub client: AsyncClient,
-}
+impl MqttChannels {
+  pub fn new() -> MqttChannels {
+    MqttChannels {
+      publish_channel: Channel::new(),
+      open_sensor_channel: Channel::new(),
+      closed_sensor_channel: Channel::new(),
+      command_channel: Channel::new(),
+      safe_to_close_channel: Channel::new(),
+      connection_state_channel: Channel::new(),
+    }
+  }
 
-impl Debug for MqttClient {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "MqttClient")
+  pub fn publisher(&self) -> MqttTopicPublisher<'_> {
+    MqttTopicPublisher {
+      send_channel: self.publish_channel.sender(),
+    }
+  }
+
+  pub fn open_sensor_receiver(&self) -> MqttTopicReceiver<'_, SensorPayload> {
+    self.open_sensor_channel.receiver()
+  }
+
+  pub fn closed_sensor_receiver(&self) -> MqttTopicReceiver<'_, SensorPayload> {
+    self.closed_sensor_channel.receiver()
+  }
+
+  pub fn command_receiver(&self) -> MqttTopicReceiver<'_, TargetState> {
+    self.command_channel.receiver()
+  }
+
+  pub fn safe_to_close_receiver(&self) -> MqttTopicReceiver<'_, bool> {
+    self.safe_to_close_channel.receiver()
   }
 }
 
-impl MqttClient {
-  pub fn new(id: &'static str, config: MqttClientConfig) -> (PublishSender, Self) {
-    let mut mqttoptions = MqttOptions::new(id, config.broker_domain, config.broker_port);
-    mqttoptions.set_last_will(LastWill::new(
-      &config.availability_topic,
-      config.offline_availability,
-      QoS::AtLeastOnce,
-      true,
-    ));
-    mqttoptions.set_keep_alive(Duration::from_secs(30));
+pub struct MqttClient<'a> {
+  pub receiver: MqttReceiver<'a>,
+  pub publisher: MqttPublisher<'a>,
+}
 
-    let (client, event_loop) = AsyncClient::new(mqttoptions, 10);
+async fn wait_for_connection(connection: &mut EspAsyncMqttConnection) -> GarageResult<()> {
+  // will timeout if the connection is not established
+  loop {
+    match connection.next().await?.payload() {
+      EventPayload::Connected(_) => return Ok(()),
+      EventPayload::Disconnected => {
+        log::error!("Could not establish connection to MQTT broker");
+        return Err(GarageError::MqttClosed);
+      }
+      EventPayload::Error(err) => {
+        log::error!("MQTT error: {:?}", err);
+        return Err(err.clone().into());
+      }
+      _ => {}
+    }
+  }
+}
 
-    let (send_tx, send_rx) = mpsc::unbounded_channel();
-
-    (
-      send_tx,
-      MqttClient {
-        availability_topic: config.availability_topic,
-        online_availability: config.online_availability,
-        receiver: MqttReceiver {
-          client: client.clone(),
-          event_loop,
-          receive_channels: HashMap::new(),
-        },
-        sender: MqttSender {
-          client: client.clone(),
-          send_channel: send_rx,
-        },
-        client,
+impl<'a> MqttClient<'a> {
+  pub async fn new(channels: &'a MqttChannels, rgb_led: &mut RgbLed) -> GarageResult<MqttClient<'a>> {
+    log::info!("Creating MQTT client: {}", CONFIG.mqtt.url);
+    rgb_led.on(colors::ORANGE_RED);
+    let (client, mut connection) = EspAsyncMqttClient::new(
+      &CONFIG.mqtt.url,
+      &MqttClientConfiguration {
+        client_id: Some(&CONFIG.mqtt.client_id),
+        lwt: Some(LwtConfiguration {
+          topic: &CONFIG.mqtt.availability_topic,
+          payload: CONFIG.mqtt.offline_availability.as_ref().as_bytes(),
+          qos: QoS::AtLeastOnce,
+          retain: true,
+        }),
+        ..Default::default()
       },
-    )
-  }
+    )?;
 
-  /// Announce our availability
-  pub async fn announce(&mut self) -> GarageResult<()> {
-    // announce our availability
-    self
-      .sender
-      .publish(
-        &self.availability_topic,
-        QoS::AtLeastOnce,
-        true,
-        &self.online_availability,
-      )
-      .await
+    wait_for_connection(&mut connection).await?;
+    rgb_led.off();
+    log::info!("MQTT client connected");
+
+    Ok(MqttClient {
+      receiver: MqttReceiver::new(connection, channels),
+      publisher: MqttPublisher::new(client, channels),
+    })
   }
 }
