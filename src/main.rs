@@ -28,8 +28,10 @@ pub mod config;
 pub mod door;
 pub mod error;
 pub mod health;
+pub mod log_storage;
 pub mod mqtt_client;
 pub mod rgb;
+pub mod time_sync;
 pub mod wifi;
 
 
@@ -47,12 +49,16 @@ async fn timer_thread_heartbeat_task() {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
   esp_idf_svc::sys::link_patches();
-  #[cfg(debug_assertions)]
-  EspLogger::initialize_default();
-  // release logger is configured in wifi.rs
 
   // Initialize global monotonic baseline for health timestamps
   init_baseline();
+
+  #[cfg(debug_assertions)]
+  EspLogger::initialize_default();
+  // In release, bring up TCP syslog with its persistent spill buffer now — before WiFi —
+  // so boot logs are captured and delivered once the server becomes reachable.
+  #[cfg(not(debug_assertions))]
+  log_storage::init_logging();
 
   log::info!("Starting...");
 
@@ -72,6 +78,17 @@ async fn main(_spawner: Spawner) {
       &mut rgb_led,
     )
     .await?;
+
+    // Start SNTP now that the network is up, so log timestamps reflect real time. Kept
+    // alive for the lifetime of this scope; dropping it would stop syncing.
+    #[cfg(not(debug_assertions))]
+    let _sntp = match time_sync::start() {
+      Ok(sntp) => Some(sntp),
+      Err(err) => {
+        log::error!("Failed to start SNTP: {err:?}");
+        None
+      }
+    };
 
     // clear tickers
     LAST_ASYNC_TICK_1S_S.store(0, Ordering::Relaxed);

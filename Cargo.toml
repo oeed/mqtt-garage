@@ -31,7 +31,7 @@ embassy-futures = "0.1.1"
 embassy-sync = "0.7"
 embassy-time = {version = "0.4", features = ["generic-queue-8"]}
 smart-leds = "0.4.0"
-syslog_esp32 = {git = "https://github.com/oeed/rust-syslog-esp32"}
+syslog_esp32 = {git = "https://github.com/oeed/rust-syslog-esp32", rev = "88686dfea256f79021b90ce800e8bce50345f4c7"}
 ws2812-esp32-rmt-driver = {version = "0.12.0", features = ["smart-leds-trait"]}
 
 # NOTE: if you use embassy-time with embassy-executor you don't need the generic-queue-8 feature
