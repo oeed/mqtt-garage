@@ -26,8 +26,14 @@ pub fn start() -> GarageResult<EspSntp<'static>> {
   }
 
   let sntp = EspSntp::new_with_callback(&conf, |synced: Duration| {
-    // `synced` is the current time as a duration since the Unix epoch.
-    syslog_esp32::sync_wall_clock(synced.as_micros() as u64);
+    // `synced` is the current time as a duration since the Unix epoch. Only anchor a
+    // plausible wall-clock: a spurious pre-sync callback can fire near epoch 0, which would
+    // otherwise stamp every log with a bogus 1970 time. Until a real time arrives, records
+    // keep the RFC 5424 NILVALUE instead.
+    const YEAR_2020: u64 = 1_577_836_800; // seconds since the Unix epoch at 2020-01-01
+    if synced.as_secs() >= YEAR_2020 {
+      syslog_esp32::sync_wall_clock(synced.as_micros() as u64);
+    }
   })?;
 
   Ok(sntp)

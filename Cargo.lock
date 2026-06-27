@@ -1537,8 +1537,8 @@ dependencies = [
 
 [[package]]
 name = "syslog_esp32"
-version = "8.0.0"
-source = "git+https://github.com/oeed/rust-syslog-esp32?rev=243a381373ea0a87a38f9421f008ca5aad4e0eca#243a381373ea0a87a38f9421f008ca5aad4e0eca"
+version = "8.0.1"
+source = "git+https://github.com/oeed/rust-syslog-esp32?rev=adfaeae5956802689e6a1ea5e3d8d55ac1097023#adfaeae5956802689e6a1ea5e3d8d55ac1097023"
 dependencies = [
  "esp-idf-svc",
  "log",
