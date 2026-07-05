@@ -8,7 +8,7 @@ use esp_idf_svc::mqtt::client::*;
 
 use crate::{
   config::CONFIG,
-  door::{SensorPayload, state::TargetState},
+  door::{SensorPayload, state::{DoorCommand, TargetState}},
   error::GarageResult,
   health::{mark_mqtt_connected, mark_mqtt_disconnected},
   mqtt_client::{CHANNEL_SIZE, MqttChannels, MqttConnectionState},
@@ -21,7 +21,7 @@ pub struct MqttReceiver<'a> {
   connection: EspAsyncMqttConnection,
   open_sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
   closed_sensor_send_channel: Sender<'a, NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
-  command_send_channel: Sender<'a, NoopRawMutex, TargetState, CHANNEL_SIZE>,
+  command_send_channel: Sender<'a, NoopRawMutex, DoorCommand, CHANNEL_SIZE>,
   safe_to_close_send_channel: Sender<'a, NoopRawMutex, bool, CHANNEL_SIZE>,
   connection_state_send_channel: Sender<'a, NoopRawMutex, MqttConnectionState, CHANNEL_SIZE>,
 }
@@ -61,7 +61,12 @@ impl<'a> MqttReceiver<'a> {
               .and_then(|str| TargetState::from_str(str))
           {
             log::info!("Received command: {state}");
-            self.command_send_channel.send(state).await;
+            self.command_send_channel.send(DoorCommand::Target(state)).await;
+          }
+          else if topic == Some(&CONFIG.door.trigger_topic) {
+            // Any message on the trigger topic pulses the remote directly (debug/testing); payload ignored.
+            log::warn!("Received remote trigger request");
+            self.command_send_channel.send(DoorCommand::Trigger).await;
           }
           else if topic == Some(&CONFIG.door.safe_to_close_topic)
             && let Ok(value) = str::from_utf8(data)

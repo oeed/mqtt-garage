@@ -90,6 +90,9 @@ pub struct DoorConfig {
   pub remote: RemoteConfig,
 
   pub command_topic: Cow<'static, str>,
+  /// Topic that, on receiving any message, pulses the remote relay directly — bypassing the
+  /// safe-to-close gate and door state machine. For debugging/testing (e.g. a Home Assistant button).
+  pub trigger_topic: Cow<'static, str>,
   pub initial_target_state: Cow<'static, str>,
   pub state_topic: Cow<'static, str>,
   pub stuck_topic: Cow<'static, str>,
@@ -143,6 +146,7 @@ offline_availability = "offline"
 
 [door]
 command_topic = "garage/door/command"
+trigger_topic = "garage/door/trigger"
 initial_target_state = "closed"
 state_topic = "garage/door/state"
 stuck_topic = "garage/door/stuck"
@@ -177,6 +181,7 @@ max_latency_duration = 250
     assert_eq!(config.mqtt.offline_availability, "offline");
 
     assert_eq!(config.door.command_topic, "garage/door/command");
+    assert_eq!(config.door.trigger_topic, "garage/door/trigger");
     assert_eq!(config.door.initial_target_state, "closed");
     assert_eq!(config.door.state_topic, "garage/door/state");
     assert_eq!(config.door.stuck_topic, "garage/door/stuck");

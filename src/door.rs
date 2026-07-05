@@ -2,13 +2,17 @@ use std::{future, pin::{pin, Pin}, str::FromStr};
 
 use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_time::Timer;
-use esp_idf_svc::{hal::gpio::Gpio14, mqtt::client::QoS};
+use esp_idf_svc::{
+  hal::gpio::{Gpio13, Gpio14},
+  mqtt::client::QoS,
+};
 use serde::Deserialize;
 use smart_leds::colors;
 
 use self::{
   remote::DoorRemote,
-  state::{SensorState, State, TargetState},
+  safety::SafetyRelay,
+  state::{DoorCommand, SensorState, State, TargetState},
 };
 use crate::{
   config::CONFIG,
@@ -19,6 +23,7 @@ use crate::{
 };
 
 pub mod remote;
+pub mod safety;
 pub mod state;
 
 /// Outcome of polling the (debounced) contact sensors for one loop iteration.
@@ -35,7 +40,7 @@ pub struct Door<'a> {
   open_sensor_receiver: MqttTopicReceiver<'a, SensorPayload>,
   /// Sensor for the bottom (i.e. on contact, the door is closed)
   closed_sensor_receiver: MqttTopicReceiver<'a, SensorPayload>,
-  command_receiver: MqttTopicReceiver<'a, TargetState>,
+  command_receiver: MqttTopicReceiver<'a, DoorCommand>,
   safe_to_close_receiver: MqttTopicReceiver<'a, bool>,
 
   /// The most recent raw reading from each sensor (pre-debounce).
@@ -51,6 +56,8 @@ pub struct Door<'a> {
   safe_to_close: bool,
 
   remote: DoorRemote<'a>,
+  /// Relay across the opener's safety input (PE ↔ GND); tracks `safe_to_close`.
+  safety_relay: SafetyRelay,
   current_state: State,
 }
 
@@ -61,7 +68,12 @@ pub struct SensorPayload {
 }
 
 impl<'a> Door<'a> {
-  pub async fn new(gpio: Gpio14, mqtt_channels: &'a MqttChannels, rgb_led: &'a mut RgbLed) -> GarageResult<Door<'a>> {
+  pub async fn new(
+    remote_gpio: Gpio14,
+    safety_gpio: Gpio13,
+    mqtt_channels: &'a MqttChannels,
+    rgb_led: &'a mut RgbLed,
+  ) -> GarageResult<Door<'a>> {
     let open_sensor_receiver = mqtt_channels.open_sensor_receiver();
     let closed_sensor_receiver = mqtt_channels.closed_sensor_receiver();
     let safe_to_close_receiver = mqtt_channels.safe_to_close_receiver();
@@ -90,7 +102,8 @@ impl<'a> Door<'a> {
     };
     log::info!("Initial state: {:?}", initial_state);
 
-    let remote = DoorRemote::new(gpio, rgb_led)?;
+    let remote = DoorRemote::new(remote_gpio, rgb_led)?;
+    let safety_relay = SafetyRelay::new(safety_gpio)?;
 
     let mut door = Door {
       publisher: mqtt_channels.publisher(),
@@ -106,7 +119,12 @@ impl<'a> Door<'a> {
       debounce_timer: None,
       safe_to_close: false,
       remote,
+      safety_relay,
     };
+
+    // Reflect the initial (conservative) safe-to-close belief onto the physical interlock relay.
+    let initial_safe = door.safe_to_close;
+    door.set_safe_to_close(initial_safe)?;
 
     door.publish_current_state().await;
 
@@ -124,7 +142,7 @@ impl<'a> Door<'a> {
 
       match safe_result {
         Either::First(safe) => {
-          door.safe_to_close = safe;
+          door.set_safe_to_close(safe)?;
           log::info!("Received initial safe_to_close: {}", safe);
         }
         Either::Second(_) => {
@@ -287,19 +305,30 @@ impl<'a> Door<'a> {
             }
           }
         }
-        Either4::Third(target_state) => {
+        Either4::Third(command) => {
           // command received
-          if target_state == TargetState::Closed && !self.safe_to_close {
-            log::warn!("Ignoring close command: not safe to close");
-          }
-          else {
-            log::info!("Next target state: {:?}", target_state);
-            next_target_state = Some(target_state);
+          match command {
+            DoorCommand::Target(target_state) => {
+              if target_state == TargetState::Closed && !self.safe_to_close {
+                log::warn!("Ignoring close command: not safe to close");
+              }
+              else {
+                log::info!("Next target state: {:?}", target_state);
+                next_target_state = Some(target_state);
+              }
+            }
+            DoorCommand::Trigger => {
+              // Debug/testing: pulse the relay directly, just like a handheld remote. This deliberately
+              // ignores the safe-to-close gate and does not set a target state — whatever the door
+              // physically does is then picked up by the contact sensors and reflected in the state.
+              log::warn!("Pulsing remote directly via trigger command (bypassing safe-to-close)");
+              self.remote.trigger().await?;
+            }
           }
         }
         Either4::Fourth(safe_to_close) => {
           log::info!("Safe to close updated: {}", safe_to_close);
-          self.safe_to_close = safe_to_close;
+          self.set_safe_to_close(safe_to_close)?;
         }
       }
     }
@@ -371,6 +400,14 @@ impl<'a> Door<'a> {
     log::info!("Door setting new state: {:?}", current_state);
     self.current_state = current_state;
     self.publish_current_state().await
+  }
+
+  /// Update the cached safe-to-close status and drive the physical interlock relay to match: its
+  /// NC contact across the opener's safety input is de-energized (closed → closing permitted) when
+  /// safe, and energized (open → closing inhibited) when not.
+  fn set_safe_to_close(&mut self, safe_to_close: bool) -> GarageResult<()> {
+    self.safe_to_close = safe_to_close;
+    self.safety_relay.set_safe_to_close(safe_to_close)
   }
 
   async fn publish_current_state(&self) {

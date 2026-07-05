@@ -46,6 +46,7 @@ fn main() {
         }},
         door: DoorConfig {{
           command_topic: Cow::Borrowed("{door_cmd_topic}"),
+          trigger_topic: Cow::Borrowed("{door_trigger_topic}"),
           initial_target_state: Cow::Borrowed("{door_initial_target_state}"),
           state_topic: Cow::Borrowed("{door_state_topic}"),
           stuck_topic: Cow::Borrowed("{door_stuck_topic}"),
@@ -83,6 +84,7 @@ fn main() {
     mqtt_offline_payload = config.mqtt.offline_availability,
     // Door Controller
     door_cmd_topic = config.door.command_topic,
+    door_trigger_topic = config.door.trigger_topic,
     door_state_topic = config.door.state_topic,
     door_stuck_topic = config.door.stuck_topic,
     door_safe_to_close_topic = config.door.safe_to_close_topic,

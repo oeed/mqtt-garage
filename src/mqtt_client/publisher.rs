@@ -60,6 +60,7 @@ impl<'a> MqttPublisher<'a> {
       &CONFIG.door.open_sensor_topic,
       &CONFIG.door.closed_sensor_topic,
       &CONFIG.door.command_topic,
+      &CONFIG.door.trigger_topic,
       &CONFIG.door.safe_to_close_topic,
     ];
 

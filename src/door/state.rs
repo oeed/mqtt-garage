@@ -32,6 +32,16 @@ impl fmt::Display for TargetState {
   }
 }
 
+/// A command received over MQTT to act on the door.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DoorCommand {
+  /// Move the door toward a target state (open/close), subject to the safe-to-close gate.
+  Target(TargetState),
+  /// Pulse the remote relay directly, bypassing all door state and the safe-to-close gate.
+  /// Intended for debugging/testing: it just presses the button, exactly like a handheld remote.
+  Trigger,
+}
+
 impl PartialEq<TargetState> for State {
   fn eq(&self, other: &TargetState) -> bool {
     match (self, other) {
