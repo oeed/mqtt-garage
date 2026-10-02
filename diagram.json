@@ -16,14 +16,20 @@
       "id": "relay",
       "top": 300,
       "left": 0
-    }
+    },
+    { "type": "wokwi-slide-switch", "id": "open_sensor", "top": -100, "left": -150, "attrs": {} },
+    { "type": "wokwi-slide-switch", "id": "closed_sensor", "top": -100, "left": -80, "attrs": {} }
   ],
   "connections": [
     ["esp:TX", "$serialMonitor:RX", "", []],
     ["esp:RX", "$serialMonitor:TX", "", []],
     ["esp:5V", "relay:VCC", "red", ["h-20", "*", "v0"]],
     ["esp:GND.1", "relay:GND", "black", ["h-30", "*", "v0"]],
-    ["esp:14", "relay:IN", "green", ["h-40", "*", "v0"]]
+    ["esp:14", "relay:IN", "green", ["h-40", "*", "v0"]],
+    ["esp:4", "open_sensor:2", "blue", []],
+    ["open_sensor:1", "esp:GND.1", "black", []],
+    ["esp:5", "closed_sensor:2", "purple", []],
+    ["closed_sensor:1", "esp:GND.1", "black", []]
   ],
   "serialMonitor": {
     "display": "terminal",

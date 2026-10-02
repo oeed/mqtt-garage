@@ -8,7 +8,7 @@ pub use self::{
 };
 use crate::{
   config::CONFIG,
-  door::{SensorPayload, state::DoorCommand},
+  door::state::DoorCommand,
   error::{GarageError, GarageResult},
   rgb::RgbLed,
 };
@@ -27,8 +27,6 @@ pub enum MqttConnectionState {
 pub struct MqttChannels {
   /// The channel with which messages to send to MQTT are received on (from `MqttTopicPublisher`)
   publish_channel: Channel<NoopRawMutex, MqttPublish, CHANNEL_SIZE>, // TODO: need to assess whether the fixed limit will have issues
-  open_sensor_channel: Channel<NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
-  closed_sensor_channel: Channel<NoopRawMutex, SensorPayload, CHANNEL_SIZE>,
   command_channel: Channel<NoopRawMutex, DoorCommand, CHANNEL_SIZE>,
   safe_to_close_channel: Channel<NoopRawMutex, bool, CHANNEL_SIZE>,
   connection_state_channel: Channel<NoopRawMutex, MqttConnectionState, CHANNEL_SIZE>,
@@ -38,8 +36,6 @@ impl MqttChannels {
   pub fn new() -> MqttChannels {
     MqttChannels {
       publish_channel: Channel::new(),
-      open_sensor_channel: Channel::new(),
-      closed_sensor_channel: Channel::new(),
       command_channel: Channel::new(),
       safe_to_close_channel: Channel::new(),
       connection_state_channel: Channel::new(),
@@ -50,14 +46,6 @@ impl MqttChannels {
     MqttTopicPublisher {
       send_channel: self.publish_channel.sender(),
     }
-  }
-
-  pub fn open_sensor_receiver(&self) -> MqttTopicReceiver<'_, SensorPayload> {
-    self.open_sensor_channel.receiver()
-  }
-
-  pub fn closed_sensor_receiver(&self) -> MqttTopicReceiver<'_, SensorPayload> {
-    self.closed_sensor_channel.receiver()
   }
 
   pub fn command_receiver(&self) -> MqttTopicReceiver<'_, DoorCommand> {

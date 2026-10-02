@@ -2,7 +2,7 @@ use std::{fmt, pin::Pin, str::FromStr};
 
 use embassy_time::Timer;
 
-use crate::{config::CONFIG, door::SensorPayload};
+use crate::config::CONFIG;
 
 /// The state the door is trying to get to
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,24 +66,51 @@ impl Stuck {
   }
 }
 
-/// Represents a door travel where we can confirm the door has reached the target state.
-// #[derive(Debug)]
-pub struct ConfirmedTravel {
-  pub(crate) expiry: Pin<Box<Timer>>,
-  /// The number of times this travel has been attempted, starting at 0
-  attempt: u8,
-  duration: embassy_time::Duration,
+/// Why the door is believed to be moving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TravelOrigin {
+  /// We pulsed the relay ourselves in response to a command.
+  Commanded,
+  /// The sensors showed movement we did not ask for — a handheld remote, the wall button, or the
+  /// door being pushed. The relay is never actuated on this path.
+  Observed,
 }
 
-impl ConfirmedTravel {
-  pub fn new(duration: embassy_time::Duration) -> Self {
-    ConfirmedTravel {
-      // Movement is only recognised after the debounce window, so budget for it on top of the caller's
-      // duration — otherwise a genuine movement that starts late in the window could be recognised after
-      // the timer has already expired, spuriously re-pulsing the relay (or marking a real travel stuck).
+/// A door movement in progress, budgeted to last until the door should have reached the far sensor.
+///
+/// The deadline is deliberately anchored to *arrival* rather than *departure*: a door that never
+/// leaves its origin sensor and one that stops part-way both look the same until the far sensor has
+/// had its full chance, and at expiry the live sensor reading says which it was.
+pub struct Travel {
+  expiry: Pin<Box<Timer>>,
+  origin: TravelOrigin,
+}
+
+impl Travel {
+  /// A travel we initiated by pulsing the relay: budget for the opener reacting, the press itself,
+  /// and then the full traverse.
+  pub fn commanded() -> Self {
+    Travel::new(
+      TravelOrigin::Commanded,
+      CONFIG.door.remote.max_latency_duration
+        + CONFIG.door.remote.pressed_duration
+        + CONFIG.door.remote.wait_duration
+        + CONFIG.door.travel_duration,
+    )
+  }
+
+  /// A travel we noticed from the sensors, already underway by the time it was debounced.
+  pub fn observed() -> Self {
+    Travel::new(TravelOrigin::Observed, CONFIG.door.travel_duration)
+  }
+
+  fn new(origin: TravelOrigin, duration: embassy_time::Duration) -> Self {
+    Travel {
+      // Arrival is only recognised after the debounce window, so budget for it on top of the traverse
+      // itself — otherwise a door that reaches its sensor right at the end of the window would be
+      // declared unconfirmed a moment before the confirmation lands.
       expiry: Box::pin(Timer::after(duration + CONFIG.door.debounce_duration)),
-      duration,
-      attempt: 0,
+      origin,
     }
   }
 
@@ -91,51 +118,29 @@ impl ConfirmedTravel {
     &mut self.expiry
   }
 
-  /// Renew the expiry on this travel an increment the attempt counter.
-  ///
-  /// Returns `Err(())` if greater than the maximum number of attempts.
-  pub fn reattempt(&mut self) -> Result<(), ()> {
-    if self.attempt >= CONFIG.door.max_attempts {
-      Err(())
-    }
-    else {
-      // Use travel_duration for reattempts since the door may need to complete
-      // a full travel. The short initial duration is only for detecting that
-      // movement started on the first attempt. Add the debounce window so a
-      // movement recognised late (after debounce) isn't missed by the timer.
-      let reattempt_duration = CONFIG.door.travel_duration + CONFIG.door.debounce_duration;
-      self.expiry = Box::pin(Timer::after(reattempt_duration));
-      self.attempt += 1;
-      log::info!(
-        "Door travel reattempt {} of {} (duration: {:?})",
-        self.attempt,
-        CONFIG.door.max_attempts,
-        reattempt_duration
-      );
-      Ok(())
-    }
+  pub fn origin(&self) -> TravelOrigin {
+    self.origin
   }
 }
 
 pub enum State {
-  AttemptingOpen(ConfirmedTravel),
-  AttemptingClose(ConfirmedTravel),
-  /// We have to assume when the door finished opening
-  Opening(ConfirmedTravel),
+  Opening(Travel),
   Open,
+  /// Believed open, but unverified — either a travel finished with the door at neither sensor, or the
+  /// sensors are contradicting each other. Always re-pulses on the next command.
   StuckOpen,
-  /// We can confirm when the door closes
-  Closing(ConfirmedTravel),
+  Closing(Travel),
   Closed,
+  /// Believed closed, but with the sensors contradicting each other.
   StuckClosed,
 }
 
 impl State {
   pub fn as_str(&self) -> &'static str {
     match self {
-      State::AttemptingOpen(_) | State::Opening(_) => "opening",
+      State::Opening(_) => "opening",
       State::Open | State::StuckOpen => "open",
-      State::AttemptingClose(_) | State::Closing(_) => "closing",
+      State::Closing(_) => "closing",
       State::Closed | State::StuckClosed => "closed",
     }
   }
@@ -144,12 +149,10 @@ impl State {
 impl fmt::Debug for State {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      State::AttemptingOpen(_) => write!(f, "AttemptingOpen"),
-      State::AttemptingClose(_) => write!(f, "AttemptingClose"),
-      State::Opening(_) => write!(f, "Opening"),
+      State::Opening(travel) => write!(f, "Opening({:?})", travel.origin()),
       State::Open => write!(f, "Open"),
       State::StuckOpen => write!(f, "StuckOpen"),
-      State::Closing(_) => write!(f, "Closing"),
+      State::Closing(travel) => write!(f, "Closing({:?})", travel.origin()),
       State::Closed => write!(f, "Closed"),
       State::StuckClosed => write!(f, "StuckClosed"),
     }
@@ -157,12 +160,13 @@ impl fmt::Debug for State {
 }
 
 impl From<SensorState> for State {
-  fn from(target_state: SensorState) -> Self {
-    match target_state {
+  fn from(sensor_state: SensorState) -> Self {
+    match sensor_state {
       SensorState::Open => State::Open,
+      // Neither a mid-travel reading nor two contradicting sensors tells us where the door actually is,
+      // and an unverified door is reported open so it is never mistaken for a secured one.
+      SensorState::Conflict | SensorState::Moving => State::StuckOpen,
       SensorState::Closed => State::Closed,
-      SensorState::Stuck => State::Open,
-      SensorState::Moving => State::Open,
     }
   }
 }
@@ -177,22 +181,9 @@ impl From<TargetState> for State {
 }
 
 impl State {
-  pub fn confirmed_travel_mut(&mut self) -> Option<&mut ConfirmedTravel> {
-    match self {
-      State::AttemptingOpen(travel)
-      | State::Opening(travel)
-      | State::AttemptingClose(travel)
-      | State::Closing(travel) => Some(travel),
-      _ => None,
-    }
-  }
-
   pub fn expiry_mut(&mut self) -> Option<&mut Pin<Box<Timer>>> {
     match self {
-      State::AttemptingOpen(travel)
-      | State::Opening(travel)
-      | State::AttemptingClose(travel)
-      | State::Closing(travel) => Some(travel.expiry_mut()),
+      State::Opening(travel) | State::Closing(travel) => Some(travel.expiry_mut()),
       _ => None,
     }
   }
@@ -200,7 +191,7 @@ impl State {
   /// True if the state if opening or closing (i.e. in transition)
   pub fn is_travelling(&self) -> bool {
     match self {
-      State::AttemptingOpen(..) | State::Opening(..) | State::AttemptingClose(..) | State::Closing(..) => true,
+      State::Opening(..) | State::Closing(..) => true,
       _ => false,
     }
   }
@@ -214,25 +205,35 @@ impl State {
 }
 
 /// Detectors can tell if a door is open or closed, but not where along it is.
-///
-/// It can also determine if the door is likely stuck.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SensorState {
   Open,
   Closed,
+  /// Neither sensor is in contact: the door is somewhere between the two.
   Moving,
-  /// Used for invalid payload too
-  Stuck,
+  /// Both sensors report contact. The door cannot be at the top and the bottom at once, so one of
+  /// the two is faulty — a shorted cable, or a switch picking up a magnet it shouldn't.
+  Conflict,
 }
 
 impl SensorState {
-  pub fn from_sensors(open_sensor: SensorPayload, closed_sensor: SensorPayload) -> Self {
-    match (open_sensor.contact, closed_sensor.contact) {
-      (true, true) => SensorState::Stuck,
+  pub fn from_contacts(open_contact: bool, closed_contact: bool) -> Self {
+    match (open_contact, closed_contact) {
+      (true, true) => SensorState::Conflict,
       (true, false) => SensorState::Open,
       (false, true) => SensorState::Closed,
       (false, false) => SensorState::Moving,
     }
+  }
+
+  /// Whether the open sensor is in contact.
+  pub fn open_contact(&self) -> bool {
+    matches!(self, SensorState::Open | SensorState::Conflict)
+  }
+
+  /// Whether the closed sensor is in contact.
+  pub fn closed_contact(&self) -> bool {
+    matches!(self, SensorState::Closed | SensorState::Conflict)
   }
 }
 

@@ -10,8 +10,6 @@ pub enum GarageError {
   Ws2812Error(#[from] ws2812_esp32_rmt_driver::Ws2812Esp32RmtDriverError),
   #[error("the MQTT client has been closed")]
   MqttClosed,
-  #[error("door initialisation timeout (sensor state not available)")]
-  DoorInitialisationTimeout,
   #[error("wifi bring-up timed out")]
   WifiTimeout,
   #[error("wifi association failed after the maximum number of attempts")]

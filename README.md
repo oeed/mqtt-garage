@@ -1,6 +1,6 @@
 # mqtt-garage
 
-An ESP32-S3 firmware written in Rust that controls a garage door via MQTT. It listens to Zigbee door sensors (via zigbee2mqtt), receives open/close commands over MQTT, and triggers a garage door remote via GPIO.
+An ESP32-S3 firmware written in Rust that controls a garage door via MQTT. It reads two wired reed switches marking the ends of the door's travel, receives open/close commands over MQTT, and drives the opener's push-button and safety inputs through relays.
 
 ## Prerequisites
 
@@ -89,16 +89,56 @@ cargo build
 
 A VS Code launch configuration (`.vscode/launch.json`) is provided for GDB debugging through Wokwi.
 
+## Wiring
+
+All low-voltage wiring shares one ground: opener `GND` = LM2596 buck `GND` = ESP32 `GND`.
+
+| ESP32-S3 | Goes to | Notes |
+|---|---|---|
+| `GPIO14` | Open relay `IN` | Relay `COM`/`NO` across opener `PB`↔`GND` (momentary pulse = button press) |
+| `GPIO13` | Safety relay `IN` | Relay `COM`/`NC` across opener `PE`↔`GND` (energised = closing inhibited) |
+| `GPIO4` | Open (top) reed switch | Switch's other terminal to `GND` |
+| `GPIO5` | Closed (bottom) reed switch | Switch's other terminal to `GND` |
+
+The reed switches (e.g. Jaycar LA5072) close when their magnet is alongside, pulling the pin low; the
+firmware enables the internal pull-up, but over a long run past the motor fit this at the ESP end of
+each sensor cable:
+
+```
+3V3 ──[4.7kΩ]──┬──[1kΩ]──┬── GPIO4 / GPIO5
+               │         │
+     reed switch      [100nF]
+               │         │
+GND ───────────┴─────────┘
+```
+
+The 4.7kΩ pull-up gives the line a stiff idle level, and the 1kΩ + 100nF filter knocks down motor
+noise and protects the pin. Use twisted pair (e.g. one pair of a Cat5 offcut) for each sensor. Never
+connect a sensor to `5V` or the opener's `24V` — ESP32-S3 inputs are 3.3V only. A cut wire reads as
+"no contact", so it can make the door look unverified but never falsely closed.
+
+Mount the closed sensor so it only makes contact with the door fully down, and the open sensor so it
+only makes contact with the door fully up (within the switch's ~15–20mm gap).
+
 ## Architecture
 
 - **Target:** ESP32-S3 (`xtensa-esp32s3-espidf`)
 - **Async runtime:** Embassy (`embassy-executor`, `embassy-time`, `embassy-sync`)
 - **ESP-IDF bindings:** `esp-idf-svc` v0.51
 - **MQTT topics:**
-  - Subscribes to Zigbee door sensor topics (open + closed contact sensors)
   - Subscribes to a command topic for open/close commands
   - Subscribes to a safe-to-close topic — close commands are ignored when this is `"false"`
-  - Publishes door state, stuck status, and availability
+  - Publishes door state, stuck status, each reed switch's contact (`{"contact":true|false}`,
+    retained), and availability
+- **Door state machine:** a commanded travel is budgeted to last until the door should have reached
+  the *far* sensor, so the door is never interrupted part-way through its traverse. Arrival at either
+  sensor proves the position on its own. When a travel runs out of time, the live sensor reading says
+  where the door ended up (still at its origin, or at neither sensor). Only a sensor clears a target: a
+  travel that ends unconfirmed spends another pulse (up to `max_attempts`). Pulses land on a
+  stationary door and therefore reverse it, so
+  `max_attempts` must be **odd** for the door to finish at the commanded end when nothing ever
+  confirms. Once the attempts run out the position is reported as open and stuck, since a door that
+  might be open must not be mistaken for a secured one.
 - **Build-time config:** TOML config is parsed in `build.rs` and embedded as a static `Config` struct
 - **Watchdog:** task watchdog (8s), interrupt watchdog (300ms), and an async stall detector that reboots if the executor stalls for >20s
 - **Core dumps:** saved to flash in ELF format for post-mortem debugging

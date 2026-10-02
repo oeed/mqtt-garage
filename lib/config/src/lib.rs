@@ -104,9 +104,19 @@ pub struct DoorConfig {
   /// without separately widening those windows.
   #[serde(default = "default_debounce_duration", deserialize_with = "deserialize_duration_millis")]
   pub debounce_duration: embassy_time::Duration,
-  pub open_sensor_topic: Cow<'static, str>,
-  pub closed_sensor_topic: Cow<'static, str>,
+  /// Topic the open (top) reed switch's debounced contact is published to, retained, as
+  /// `{"contact":true|false}`.
+  pub open_sensor_state_topic: Cow<'static, str>,
+  /// Topic the closed (bottom) reed switch's debounced contact is published to, retained, as
+  /// `{"contact":true|false}`.
+  pub closed_sensor_state_topic: Cow<'static, str>,
   pub safe_to_close_topic: Cow<'static, str>,
+  /// How many relay pulses may be spent getting the door *confirmed* at a commanded position.
+  ///
+  /// Each pulse is given a full travel window, so a pulse only ever lands on a stationary door and
+  /// therefore reverses it. That means an odd number is wanted: if nothing ever confirms, the door
+  /// still ends up at the commanded position, and the sensor at that end gets a second look on the
+  /// way. 3 gives the destination sensor two chances and the far sensor one.
   pub max_attempts: u8,
 }
 
@@ -151,8 +161,8 @@ initial_target_state = "closed"
 state_topic = "garage/door/state"
 stuck_topic = "garage/door/stuck"
 travel_duration = 30000
-open_sensor_topic = "garage/door/open_sensor"
-closed_sensor_topic = "garage/door/closed_sensor"
+open_sensor_state_topic = "garage/door/open_sensor"
+closed_sensor_state_topic = "garage/door/closed_sensor"
 safe_to_close_topic = "garage/door/safe_to_close"
 max_attempts = 3
 
@@ -188,8 +198,8 @@ max_latency_duration = 250
     assert_eq!(config.door.travel_duration, embassy_time::Duration::from_millis(30_000));
     // omitted from the TOML above, so it falls back to the default
     assert_eq!(config.door.debounce_duration, embassy_time::Duration::from_millis(1_500));
-    assert_eq!(config.door.open_sensor_topic, "garage/door/open_sensor");
-    assert_eq!(config.door.closed_sensor_topic, "garage/door/closed_sensor");
+    assert_eq!(config.door.open_sensor_state_topic, "garage/door/open_sensor");
+    assert_eq!(config.door.closed_sensor_state_topic, "garage/door/closed_sensor");
     assert_eq!(config.door.safe_to_close_topic, "garage/door/safe_to_close");
     assert_eq!(config.door.max_attempts, 3);
 

@@ -175,10 +175,17 @@ async fn main(_spawner: Spawner) {
       pin!(async move { mqtt_publisher.send_messages().await }),
       pin!(async {
         Ok(
-          Door::new(peripherals.pins.gpio14, peripherals.pins.gpio13, &mqtt_channels, &mut rgb_led)
-            .await?
-            .listen()
-            .await?,
+          Door::new(
+            peripherals.pins.gpio14,
+            peripherals.pins.gpio13,
+            peripherals.pins.gpio4,
+            peripherals.pins.gpio5,
+            &mqtt_channels,
+            &mut rgb_led,
+          )
+          .await?
+          .listen()
+          .await?,
         )
       }),
       pin!(async move {

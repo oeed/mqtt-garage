@@ -58,8 +58,8 @@ fn main() {
               wait_duration: embassy_time::Duration::from_millis({door_remote_wait_time_ms}),
               max_latency_duration: embassy_time::Duration::from_millis({door_remote_max_latency_duration_ms}),
           }},
-          open_sensor_topic: Cow::Borrowed("{door_open_sensor_topic}"),
-          closed_sensor_topic: Cow::Borrowed("{door_closed_sensor_topic}"),
+          open_sensor_state_topic: Cow::Borrowed("{door_open_sensor_state_topic}"),
+          closed_sensor_state_topic: Cow::Borrowed("{door_closed_sensor_state_topic}"),
           max_attempts: {door_max_attempts},
         }},
       }};
@@ -96,8 +96,8 @@ fn main() {
     door_remote_wait_time_ms = config.door.remote.wait_duration.as_millis(),
     door_remote_max_latency_duration_ms = config.door.remote.max_latency_duration.as_millis(),
     // Door Detector
-    door_open_sensor_topic = config.door.open_sensor_topic,
-    door_closed_sensor_topic = config.door.closed_sensor_topic,
+    door_open_sensor_state_topic = config.door.open_sensor_state_topic,
+    door_closed_sensor_state_topic = config.door.closed_sensor_state_topic,
     door_max_attempts = config.door.max_attempts,
   );
 
