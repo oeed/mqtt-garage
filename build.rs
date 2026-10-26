@@ -43,6 +43,7 @@ fn main() {
           availability_topic: Cow::Borrowed("{mqtt_availability_topic}"),
           online_availability: Cow::Borrowed("{mqtt_online_payload}"),
           offline_availability: Cow::Borrowed("{mqtt_offline_payload}"),
+          discovery_prefix: Cow::Borrowed("{mqtt_discovery_prefix}"),
         }},
         door: DoorConfig {{
           command_topic: Cow::Borrowed("{door_cmd_topic}"),
@@ -82,6 +83,7 @@ fn main() {
     mqtt_availability_topic = config.mqtt.availability_topic,
     mqtt_online_payload = config.mqtt.online_availability,
     mqtt_offline_payload = config.mqtt.offline_availability,
+    mqtt_discovery_prefix = config.mqtt.discovery_prefix,
     // Door Controller
     door_cmd_topic = config.door.command_topic,
     door_trigger_topic = config.door.trigger_topic,

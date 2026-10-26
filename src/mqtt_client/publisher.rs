@@ -10,7 +10,7 @@ use esp_idf_svc::mqtt::client::{EspAsyncMqttClient, QoS};
 use crate::{
   config::CONFIG,
   error::GarageResult,
-  mqtt_client::{MqttChannels, MqttConnectionState},
+  mqtt_client::{MqttChannels, MqttConnectionState, discovery::DISCOVERY_CONFIGS},
 };
 
 #[derive(Debug)]
@@ -113,9 +113,19 @@ impl<'a> MqttPublisher<'a> {
     }
   }
 
-  /// Announce our availability
+  /// Announce our availability, and describe our entities to Home Assistant.
   pub async fn announce(&mut self) -> GarageResult<()> {
-    // announce our availability
+    for discovery in DISCOVERY_CONFIGS.iter() {
+      self
+        .publish(MqttPublish {
+          topic: &discovery.topic,
+          qos: QoS::AtLeastOnce,
+          retain: true,
+          payload: &discovery.payload,
+        })
+        .await?;
+    }
+
     self
       .publish(MqttPublish {
         topic: &CONFIG.mqtt.availability_topic,

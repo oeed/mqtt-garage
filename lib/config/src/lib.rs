@@ -72,6 +72,14 @@ pub struct MqttConfig {
   pub availability_topic: Cow<'static, str>,
   pub online_availability: Cow<'static, str>,
   pub offline_availability: Cow<'static, str>,
+  /// Topic prefix Home Assistant watches for MQTT discovery configs. Optional in the TOML; defaults to
+  /// Home Assistant's own default, `homeassistant`.
+  #[serde(default = "default_discovery_prefix")]
+  pub discovery_prefix: Cow<'static, str>,
+}
+
+fn default_discovery_prefix() -> Cow<'static, str> {
+  Cow::Borrowed("homeassistant")
 }
 
 
@@ -189,6 +197,8 @@ max_latency_duration = 250
     assert_eq!(config.mqtt.availability_topic, "garage/availability");
     assert_eq!(config.mqtt.online_availability, "online");
     assert_eq!(config.mqtt.offline_availability, "offline");
+    // omitted from the TOML above, so it falls back to the default
+    assert_eq!(config.mqtt.discovery_prefix, "homeassistant");
 
     assert_eq!(config.door.command_topic, "garage/door/command");
     assert_eq!(config.door.trigger_topic, "garage/door/trigger");

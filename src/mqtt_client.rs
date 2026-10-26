@@ -13,6 +13,7 @@ use crate::{
   rgb::RgbLed,
 };
 
+mod discovery;
 mod publisher;
 mod receiver;
 
